@@ -6,6 +6,7 @@
 
 #include "ppmd.h"
 #include <cstring>
+#include <cstdlib>
 
 namespace PPMD {
 
@@ -125,7 +126,7 @@ uint U2B( uint NU ) {
 int StartSubAllocator( qword SASize ) {
   qword t = SASize << 20U;
 
-  HeapStart = new byte[t];
+  HeapStart = (byte*)malloc(t);
 
   if( HeapStart==NULL ) return 0;
   SubAllocatorSize = t;
@@ -152,7 +153,7 @@ qword GetUsedMemory() {
 }
 
 void StopSubAllocator() {
-  if( SubAllocatorSize ) SubAllocatorSize=0, delete[] HeapStart;
+  if( SubAllocatorSize ) SubAllocatorSize=0, free(HeapStart);
 
 }
 
