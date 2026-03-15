@@ -1,5 +1,7 @@
 // This is adapted from fxcm and other paq8 compressors
 
+#define _CRT_SECURE_NO_WARNINGS
+
 /*
     Copyright (C) 2024 Kaido Orav
 
@@ -34,6 +36,13 @@
 typedef unsigned char U8;
 typedef unsigned short U16;
 typedef unsigned int U32;
+
+// Compiler-specific noinline attribute
+#if defined(_MSC_VER)
+#define NOINLINE __declspec(noinline)
+#else
+#define NOINLINE __attribute__((noinline))
+#endif
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
@@ -336,7 +345,7 @@ void generate() {
   }
 
 }
-void __attribute__ ((noinline)) Init(int s0,int s1,int s2,int s3,int s4,int s5,int s6,U8 *table) {
+void NOINLINE Init(int s0,int s1,int s2,int s3,int s4,int s5,int s6,U8 *table) {
     b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;mdc=s6;
     generate(); 
     memcpy(table,  ns, 1024);
@@ -619,7 +628,7 @@ void train(short *t, short *w, int n, int err) {
 #endif 
 
   // Adjust weights to minimize coding cost of last prediction
-  void __attribute__ ((noinline)) update(int y) {
+  void NOINLINE update(int y) {
        err=((y<<12)-pr)*uperr/4;
       if (err>32767)
           err=32767;
@@ -630,12 +639,12 @@ void train(short *t, short *w, int n, int err) {
   }
  
   // predict next bit
-  int __attribute__ ((noinline)) p( ) {
+  int NOINLINE p( ) {
     assert(cxt>=0 && cxt<M);
     int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>11;
     return pr=squash(dp);
   }
-  int __attribute__ ((noinline)) p1( ) {
+  int NOINLINE p1( ) {
     assert(cxt<M);
     int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>11;
     if (dp<-2047) {
@@ -679,7 +688,7 @@ struct StateMap {
   int next(int i, int y){
       return nn[ y + i*4];
   }
-  void __attribute__ ((noinline)) Init(int n, const U8 *nn1){
+  void NOINLINE Init(int n, const U8 *nn1){
     nn=nn1;
     N=n, cxt=0, pr=2048;
     assert(ispowerof2(n));
@@ -712,7 +721,7 @@ struct StateMap1 {
   int pr;
   int mask;
   int limit; 
-   void __attribute__ ((noinline)) Init(int n, int lim){
+   void NOINLINE Init(int n, int lim){
     N=n, cxt=0, pr=2048, mask=n-1,limit=lim;
     assert(ispowerof2(n));
     alloc(t,n);
@@ -775,7 +784,7 @@ struct RunContextMap {
      }
   
   }
-  void __attribute__ ((noinline)) set(U32 cx,U8 c1) {  // update count
+  void NOINLINE set(U32 cx,U8 c1) {  // update count
     if (cp[0]==0) cp[0]=2, cp[1]=c1;
     else if (cp[1]!=c1) cp[0]=1, cp[1]=c1;
     else if (cp[0]<254) cp[0]=cp[0]+2;
@@ -834,7 +843,7 @@ struct SmallStationaryContextMap {
   int Context, Mask, Stride, bCount, bTotal, B,N;
   U16 *cp;
 
-  void __attribute__ ((noinline)) Init(int BitsOfContext,  int InputBits = 8)     {
+  void NOINLINE Init(int BitsOfContext,  int InputBits = 8)     {
     assert(InputBits>0 && InputBits<=8);
     Context=0, Mask=((1<<BitsOfContext)-1), 
     Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0)  ;
@@ -849,7 +858,7 @@ struct SmallStationaryContextMap {
     Context = (ctx&Mask)*Stride;
     bCount=B=0;
   }
-  void __attribute__ ((noinline)) mix( int r) {
+  void NOINLINE mix( int r) {
    int rate =r +7; const int Multiplier = 1;const int Divisor = 4;
     *cp+=((x.y<<16)-(*cp)+(1<<(rate-1)))>>rate;
     B+=(x.y && B>0);
@@ -943,7 +952,7 @@ union  E {  // hash element, 64 bytes
       // If not found, insert or replace lowest priority (not last).
       };
      U8 pad[B] ;
-      __attribute__ ((noinline)) U8* get(U16 ch,int keep) {
+      NOINLINE U8* get(U16 ch,int keep) {
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
 
@@ -994,7 +1003,7 @@ struct ContextMap {
       return nn[ y + i*4];
   }
 
-  int __attribute__ ((noinline)) mix() {return mix1(  x.c0,  x.bpos, (U8) x.c4);}
+  int NOINLINE mix() {return mix1(  x.c0,  x.bpos, (U8) x.c4);}
   inline int pre(const int state) {
     assert(state>=0 && state<256);
     U32 n0=next(state, 2)*3+1;
@@ -1003,7 +1012,7 @@ struct ContextMap {
   }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-void __attribute__ ((noinline)) Init(U32 m, int c, int s3,const U8 *nn1,int cs4,int k,int u, short *st){
+void NOINLINE Init(U32 m, int c, int s3,const U8 *nn1,int cs4,int k,int u, short *st){
     C=c&255;
     tmask=((m>>6)-1); 
     cn=0;
@@ -1207,7 +1216,7 @@ struct ContextMap1 {
   }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-void __attribute__ ((noinline)) Init(U32 m, int c, int s3,const U8 *nn1,int cs4,int k,int u,short *st){
+void NOINLINE Init(U32 m, int c, int s3,const U8 *nn1,int cs4,int k,int u,short *st){
     C=c&255;
     tmask=((m>>6)-1); 
     cn=0;
@@ -1310,7 +1319,7 @@ inline void mix4() {
 }
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
-int __attribute__ ((noinline))  mix() {
+int NOINLINE  mix() {
   // Update model with y
    result=0;
   for (int i=0; i<cn; ++i) {
@@ -1391,7 +1400,7 @@ union  E1 {  // hash element, 64 bytes
       // If not found, insert or replace lowest priority (not last).
       };
      U8 pad[B] ;
-      __attribute__ ((noinline)) U8* get(U16 ch,int keep) {
+      NOINLINE U8* get(U16 ch,int keep) {
 
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
@@ -1439,7 +1448,7 @@ struct ContextMap2 {
   }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-void __attribute__ ((noinline)) Init(U32 m1, int c, int s3,const U8 *nn1,int cs4,int k,int u,short *st){
+void NOINLINE Init(U32 m1, int c, int s3,const U8 *nn1,int cs4,int k,int u,short *st){
     C=c&255;
     int m=m1*2;
     tmask=((m>>7)-1); 
@@ -1543,7 +1552,7 @@ inline void mix4() {
 }
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
-int __attribute__ ((noinline))  mix() {
+int NOINLINE  mix() {
   // Update model with y
    result=0;
   for (int i=0; i<cn; ++i) {
@@ -1636,7 +1645,7 @@ struct  APM {
     }
 
     // maps p, cxt -> p initially
-    void __attribute__ ((noinline)) Init(){
+    void NOINLINE Init(){
         index=0;
         for (int j=0; j<33; ++j) t[j]=squash((j-16)*128)*16;
         for (int i=33; i<S*33; ++i) t[i]=t[i-33];
@@ -1653,7 +1662,7 @@ struct DirectStateMap {
   int count;
   const U8 *nn;
     
-  void __attribute__ ((noinline)) Init(int m,int c,const U8 *nn1){
+  void NOINLINE Init(int m,int c,const U8 *nn1){
     nn=nn1;
     mask=(1<<m)-1,index=0,count=c;
     alloc(cxt,c);
@@ -1951,7 +1960,7 @@ struct BracketContext {
         vec_new(&active);
         vec_new(&distance);
     }
-    void __attribute__ ((noinline)) Reset(){
+    void NOINLINE Reset(){
         vec_reset(&active);
         vec_reset(&distance);
         context=cxt=dst=0;
@@ -1972,7 +1981,7 @@ struct BracketContext {
     int last(){
         return vec_prev(&active);
     }
-    void __attribute__ ((noinline)) Update(int byte) {
+    void NOINLINE Update(int byte) {
         bool pop=false;
         if (!vec_empty(&active)) {
             if (FindEnd(vec_at(&active,vec_size(&active)-1) , byte) || vec_at(&distance,vec_size(&distance)-1) >= limit) {
@@ -2028,18 +2037,18 @@ struct ColumnContext {
     bool isNewLine(){
         return NL;
     }
-    int  __attribute__ ((noinline)) collen(int i=0,int l=0){
+    int  NOINLINE collen(int i=0,int l=0){
         return min((l?l:limit), vec_size(&col[(rows-i)&3].bytes)+1);
     }
     int nlpos(int i=0){
         return col[(rows-i)&3].linepos;
     }
-    U8  __attribute__ ((noinline)) colb(int i=1,int j=0,int l=0){
+    U8  NOINLINE colb(int i=1,int j=0,int l=0){
         if (collen(0,l)<collen(i,l))
         return  vec_at(&col[(rows-i)&3].bytes,collen()-(1+j));
         else return 0;
     }
-    void __attribute__ ((noinline)) Update(int byte,int b2=0) {
+    void NOINLINE Update(int byte,int b2=0) {
         // Start and end of table - this expects char { is swaped to {{
         if ( b2==((CURLYOPENING<<16)+ (CURLYOPENING<<8)+ VERTICALBAR) ) nlChar=WIKITABLE;
         else if ( b2==((VERTICALBAR<<16)+ (CURLYCLOSE<<8)+CURLYCLOSE ) ) nlChar=LF,resetCells();
@@ -2179,7 +2188,7 @@ struct WordsContext {
     void Set(U8 b,int a=0){
         pbyte=b;upper=a;
     }
-    void  __attribute__ ((noinline)) Update(U32 w,U8 b, U32 t,U32 s) {
+    void  NOINLINE Update(U32 w,U8 b, U32 t,U32 s) {
         if (fword==0) fword=w;
         vec_push(&sbytes,U16(pbyte*256+b));  // Surrounding bytes
         vec_push(&type,t);
@@ -2188,34 +2197,34 @@ struct WordsContext {
         pbyte=0;wordcount++;
         if (ftype==0 && t) ftype=t;
     }
-    void  __attribute__ ((noinline)) Remove(){
+    void  NOINLINE Remove(){
         const int num=vec_size(&stem);
         if (num) {
             vec_pop(&sbytes),vec_pop(&type),vec_pop(&stem),vec_pop(&capital),wordcount--;
         }
     }
-    U32  __attribute__ ((noinline)) Word(int i=1){
+    U32  NOINLINE Word(int i=1){
         const int num=vec_size(&stem);
         if (num>=i) return vec_at(&stem,num-(i));
         else return 0;
     }
-    U16  __attribute__ ((noinline)) sBytes(int i=1){
+    U16  NOINLINE sBytes(int i=1){
         const int num=vec_size(&sbytes);
         if (num>=i) return vec_at(&sbytes,num-(i));
         else return 0;
     }
-    U32  __attribute__ ((noinline)) Type(int i=1){
+    U32  NOINLINE Type(int i=1){
         const int num=vec_size(&type);
         if (num>=i) return vec_at(&type,num-(i));
         else return 0;
     }
-    U8  __attribute__ ((noinline)) Capital(int i=1){
+    U8  NOINLINE Capital(int i=1){
         const int num=vec_size(&capital);
         if (num>=i) return vec_at(&capital,num-(i));
         else return 0;
     }
     // Return last word matching verb, ... If not found return 0
-    U32  __attribute__ ((noinline)) Last(int j=1, U32 t=0){
+    U32  NOINLINE Last(int j=1, U32 t=0){
         const int num=vec_size(&type);
         if (t==0) return Word(j);
         if (num>=j){
@@ -2228,7 +2237,7 @@ struct WordsContext {
         }
         return Word(j);
     }
-    U32  __attribute__ ((noinline)) LastIf(int j=1, U32 t=0){
+    U32  NOINLINE LastIf(int j=1, U32 t=0){
         const int num=vec_size(&type);
         if (t==0) return Word(j);
         if (num>=j){
@@ -2241,7 +2250,7 @@ struct WordsContext {
         }
         return 0;
     }
-        U32  __attribute__ ((noinline)) LastIdx(int j=1, U32 t=0){
+        U32  NOINLINE LastIdx(int j=1, U32 t=0){
         const int num=vec_size(&type);
         if (t==0) return 0;
         if (num>=j){
@@ -2254,7 +2263,7 @@ struct WordsContext {
         }
         return 0;
     }
-    void __attribute__ ((noinline)) removeWordsL(int len, U8 c,U8 d, const bool f=true){
+    void NOINLINE removeWordsL(int len, U8 c,U8 d, const bool f=true){
         if ((sBytes(1)&0xff)==d){
             for (int i=1; i<len; i++) {
                     if ((sBytes(i)>>8)==c) {
@@ -2265,7 +2274,7 @@ struct WordsContext {
             }
         }
     }
-    void __attribute__ ((noinline)) removeWordsR(int len, U8 c,U8 d, const bool f=true){
+    void NOINLINE removeWordsR(int len, U8 c,U8 d, const bool f=true){
         if ((sBytes(1)&0xff)==d){
             for (int i=1; i<len; i++) {
                 if ((sBytes(i)&0xff)==c) {
@@ -2337,7 +2346,7 @@ public:
       printf("%c",Letters[i]);
       //printf("\n");
   }*/
-  bool __attribute__ ((noinline)) ChangeSuffix(const char *OldSuffix, const char *NewSuffix){
+  bool NOINLINE ChangeSuffix(const char *OldSuffix, const char *NewSuffix){
     size_t len=strlen(OldSuffix);
     if (Length()>len && memcmp(&Letters[End-len+1], OldSuffix, len)==0){
       size_t n=strlen(NewSuffix);
@@ -2351,7 +2360,7 @@ public:
     }
     return false;
   }
-  bool __attribute__ ((noinline)) MatchesAny(const char* a[], const int count) {
+  bool NOINLINE MatchesAny(const char* a[], const int count) {
     int i=0;
     size_t len = (size_t)Length();
     for (; i<count && (len!=strlen(a[i]) || memcmp(&Letters[Start], a[i], len)!=0); i++);
@@ -3550,7 +3559,7 @@ bool isMMatch(const U32 pos, const int MINLEN) {
     return true;
 }
 
-void __attribute__ ((noinline)) AddCandidates(HashElementForMatchPositions* matches, U32 LEN) {
+void NOINLINE AddCandidates(HashElementForMatchPositions* matches, U32 LEN) {
     U32 i = 0;
     while (numberOfActiveCandidates < matchN && i < mHashN) {
       U32 matchpos = matches->matchPositions[i];
@@ -3771,7 +3780,7 @@ void setbufstem(char c){
     }
 }
 // Set decoded char to buffer and update stemmer string
-void __attribute__ ((noinline)) setbuf(char c){
+void NOINLINE setbuf(char c){
     cwbuf[cwpos&CBMASK]=c;
     cwpos++; 
    //  if (isPre) printf("%c",c);  // print text when pre tag, etc
@@ -3780,7 +3789,7 @@ void __attribute__ ((noinline)) setbuf(char c){
 
 // Process partial or full codeword
 // decode to text if found and update buffer
-void __attribute__ ((noinline)) procWord() {
+void NOINLINE procWord() {
     if (dcwl>0 ){
         if (dcwl==2)dcw=(dcw/256)+(dcw&255)*256;
         if (dcwl==3)dcw=((dcw/256)/256)+(dcw&0xff00)+(dcw&255)*256*256;

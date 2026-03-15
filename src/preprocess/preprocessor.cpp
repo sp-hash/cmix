@@ -1,5 +1,7 @@
 // This preprocessor is adapted from paq8l, paq8hp12any and paq8px.
 
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <vector>
 #include <cstdlib>
 #include <string.h>

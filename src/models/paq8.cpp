@@ -1,5 +1,7 @@
 // This code is a hybrid of paq8l, paq8pxd (released by Kaido Orav) and paq8px (v101 and up, released by Jan Ondrus and Márcio Pais).
 
+#define _CRT_SECURE_NO_WARNINGS
+
 /*
     Copyright (C) 2006 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,

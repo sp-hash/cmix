@@ -2,6 +2,8 @@
 // mod_ppmd is adapted from ppmd by Eugene Shelwien.
 // This file is adapted from mod_ppmd_v2: http://encode.su/threads/2515-mod_ppmd
 
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "ppmd.h"
 #include <cstring>
 
@@ -730,7 +732,7 @@ PPM_CONTEXT* UpdateModel( PPM_CONTEXT* MinContext ) {
   byte Flag, FSymbol;
   uint ns1, ns, cf, sf, s0, FFreq;
   uint iSuccessor, iFSuccessor;
-  PPM_CONTEXT* pc;
+  PPM_CONTEXT* pc = NULL;
   STATE* p = NULL;
 
   FSymbol = FoundState->Symbol;

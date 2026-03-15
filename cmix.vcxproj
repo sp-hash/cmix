@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Configuration">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{9A7C8E1D-2F3B-4C5D-9E7A-1B3F5D7C9E8A}</ProjectGuid>
+    <RootNamespace>cmix</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\coder\decoder.cpp" />
+    <ClCompile Include="src\coder\encoder.cpp" />
+    <ClCompile Include="src\context-manager.cpp" />
+    <ClCompile Include="src\contexts\bit-context.cpp" />
+    <ClCompile Include="src\contexts\bracket-context.cpp" />
+    <ClCompile Include="src\contexts\combined-context.cpp" />
+    <ClCompile Include="src\contexts\context-hash.cpp" />
+    <ClCompile Include="src\contexts\indirect-hash.cpp" />
+    <ClCompile Include="src\contexts\interval-hash.cpp" />
+    <ClCompile Include="src\contexts\interval.cpp" />
+    <ClCompile Include="src\contexts\sparse.cpp" />
+    <ClCompile Include="src\mixer\byte-mixer.cpp" />
+    <ClCompile Include="src\mixer\lstm-layer.cpp" />
+    <ClCompile Include="src\mixer\lstm.cpp" />
+    <ClCompile Include="src\mixer\mixer-input.cpp" />
+    <ClCompile Include="src\mixer\mixer.cpp" />
+    <ClCompile Include="src\mixer\sigmoid.cpp" />
+    <ClCompile Include="src\mixer\sse.cpp" />
+    <ClCompile Include="src\models\bracket.cpp" />
+    <ClCompile Include="src\models\byte-model.cpp" />
+    <ClCompile Include="src\models\direct-hash.cpp" />
+    <ClCompile Include="src\models\direct.cpp" />
+    <ClCompile Include="src\models\indirect.cpp" />
+    <ClCompile Include="src\models\fxcmv1.cpp" />
+    <ClCompile Include="src\models\match.cpp" />
+    <ClCompile Include="src\models\paq8.cpp" />
+    <ClCompile Include="src\models\ppmd.cpp" />
+    <ClCompile Include="src\predictor.cpp" />
+    <ClCompile Include="src\preprocess\dictionary.cpp" />
+    <ClCompile Include="src\preprocess\preprocessor.cpp" />
+    <ClCompile Include="src\runner.cpp" />
+    <ClCompile Include="src\states\nonstationary.cpp" />
+    <ClCompile Include="src\states\run-map.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\coder\decoder.h" />
+    <ClInclude Include="src\coder\encoder.h" />
+    <ClInclude Include="src\context-manager.h" />
+    <ClInclude Include="src\contexts\bit-context.h" />
+    <ClInclude Include="src\contexts\bracket-context.h" />
+    <ClInclude Include="src\contexts\combined-context.h" />
+    <ClInclude Include="src\contexts\context-hash.h" />
+    <ClInclude Include="src\contexts\context.h" />
+    <ClInclude Include="src\contexts\indirect-hash.h" />
+    <ClInclude Include="src\contexts\interval-hash.h" />
+    <ClInclude Include="src\contexts\interval.h" />
+    <ClInclude Include="src\contexts\sparse.h" />
+    <ClInclude Include="src\mixer\byte-mixer.h" />
+    <ClInclude Include="src\mixer\lstm-layer.h" />
+    <ClInclude Include="src\mixer\lstm.h" />
+    <ClInclude Include="src\mixer\mixer-input.h" />
+    <ClInclude Include="src\mixer\mixer.h" />
+    <ClInclude Include="src\mixer\sigmoid.h" />
+    <ClInclude Include="src\mixer\sse.h" />
+    <ClInclude Include="src\models\bracket.h" />
+    <ClInclude Include="src\models\byte-model.h" />
+    <ClInclude Include="src\models\direct-hash.h" />
+    <ClInclude Include="src\models\direct.h" />
+    <ClInclude Include="src\models\indirect.h" />
+    <ClInclude Include="src\models\fxcmv1.h" />
+    <ClInclude Include="src\models\match.h" />
+    <ClInclude Include="src\models\model.h" />
+    <ClInclude Include="src\models\paq8.h" />
+    <ClInclude Include="src\models\ppmd.h" />
+    <ClInclude Include="src\predictor.h" />
+    <ClInclude Include="src\preprocess\dictionary.h" />
+    <ClInclude Include="src\preprocess\preprocessor.h" />
+    <ClInclude Include="src\states\nonstationary.h" />
+    <ClInclude Include="src\states\run-map.h" />
+    <ClInclude Include="src\states\state.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
