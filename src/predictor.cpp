@@ -150,7 +150,7 @@ void Predictor::AddDirect() {
 void Predictor::AddMatch() {
   float delta = 0.5;
   int limit = 200;
-  unsigned long long max_size = 20000000;
+  unsigned long long max_size = 100000000;
   std::vector<std::vector<int>> model_params = {{0, 8}, {1, 8}, {2, 8}, {7, 4},
       {11, 3}, {13, 2}, {15, 2}, {17, 2}, {20, 1}, {25, 1}};
 
@@ -362,27 +362,38 @@ float Predictor::Predict() {
   unsigned int input_index = 0;
   for (unsigned int i = 0; i < models_.size(); ++i) {
     const std::valarray<float>& outputs = models_[i]->Predict();
-    for (unsigned int j = 0; j < outputs.size(); ++j) {
-      layers_[0]->SetInput(input_index, outputs[j]);
-      ++input_index;
+    if (outputs.size() == 1) {
+      layers_[0]->SetInput(input_index++, outputs[0]);
+    } else {
+      for (unsigned int j = 0; j < outputs.size(); ++j) {
+        layers_[0]->SetInput(input_index++, outputs[j]);
+      }
     }
   }
 
   for (unsigned int i = 0; i < byte_models_.size(); ++i) {
     const std::valarray<float>& outputs = byte_models_[i]->Predict();
-    for (unsigned int j = 0; j < outputs.size(); ++j) {
-      layers_[0]->SetInput(input_index, outputs[j]);
-      ++input_index;
+    if (outputs.size() == 1) {
+      layers_[0]->SetInput(input_index++, outputs[0]);
+    } else {
+      for (unsigned int j = 0; j < outputs.size(); ++j) {
+        layers_[0]->SetInput(input_index++, outputs[j]);
+      }
     }
   }
   float byte_mixer_override = -1;
   for (unsigned int i = 0; i < byte_mixers_.size(); ++i) {
     const std::valarray<float>& outputs = byte_mixers_[i]->Predict();
-    for (unsigned int j = 0; j < outputs.size(); ++j) {
-      float p = outputs[j];
+    if (outputs.size() == 1) {
+      float p = outputs[0];
       if (p == 0 || p == 1) byte_mixer_override = p;
-      layers_[0]->SetInput(input_index, p);
-      ++input_index;
+      layers_[0]->SetInput(input_index++, p);
+    } else {
+      for (unsigned int j = 0; j < outputs.size(); ++j) {
+        float p = outputs[j];
+        if (p == 0 || p == 1) byte_mixer_override = p;
+        layers_[0]->SetInput(input_index++, p);
+      }
     }
   }
   float auxiliary_average = 0;
@@ -450,9 +461,7 @@ void Predictor::Perceive(int bit) {
     for (unsigned int i = 0; i < byte_models_.size(); ++i) {
       const std::valarray<float>& p = byte_models_[i]->BytePredict();
       for (const auto& byte_mixer : byte_mixers_) {
-        for (unsigned int j = 0; j < 256; ++j) {
-          byte_mixer->SetInput(j, p[j]);
-        }
+        byte_mixer->AddInputs(p);
       }
     }
     for (const auto& byte_mixer : byte_mixers_) {

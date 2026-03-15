@@ -142,13 +142,8 @@ uint Extrap( int p1, int C ) {
   return p1;
 }
 
-uint WExtrap( int _p1, int C ) {
-  double p1 = st_d(_p1-hSCALE);
-  p1 = (p1*C)/8192;
-  _p1 = sq_d(p1);
-  if( _p1<0 ) _p1=0;
-  if( _p1>SCALE ) _p1=SCALE;
-  return _p1+hSCALE;
+uint WExtrap( int p1, int C ) {
+  return Extrap(p1, C);
 }
 
 struct Mixer {
@@ -243,31 +238,22 @@ struct M_T1 : M_T {
 uint M_Estimate( uint p ) {
   uint p0,p1,s0,s1,s2;
   uint p2,s4,s5;
-  uint j=M_j, pc=M_pc, ffl=M_ffl, prq=p>>11;
+  uint j=M_j, pc=M_pc, ffl=M_ffl;
+  uint prq = (p >> 11);
+  uint prq_bits = (prq > 0) + (prq > 14);
 
-  sm7x = 0;
-  sm7x = sm7x*3 + ((prq>0+(1-1))+(prq>14+(1-1)));
-  sm7x = (sm7x<<5) + ((ffl)&31);
-  sm7x = (sm7x<<8) + ((pc)&255);
-  sm7x = (sm7x*255) + M_sm7mask0[j];
+  sm7x = (((prq_bits << 5) | (ffl & 31)) << 8) | (pc & 255);
+  sm7x = (sm7x * 255) + M_sm7mask0[j];
 
-  mix2 = 0;
-  mix2 = mix2*3 + ((prq>0+(1-1))+(prq>14+(1-1)));
-  mix2 = (mix2<<1) + ((ffl)&1);
-  mix2 = (mix2<<8) + ((pc)&255);
-  mix2 = (mix2*256) + (j);
+  mix2 = (((prq_bits << 1) | (ffl & 1)) << 8) | (pc & 255);
+  mix2 = (mix2 * 256) + (j);
 
-  sm6x = 0;
-  sm6x = sm6x*3 + ((prq>0+(1-1))+(prq>14+(1-1)));
-  sm6x = (sm6x<<7) + ((ffl)&127);
-  sm6x = (sm6x<<8) + ((pc)&255);
-  sm6x = (sm6x*256) + (j);
+  sm6x = (((prq_bits << 7) | (ffl & 127)) << 8) | (pc & 255);
+  sm6x = (sm6x * 256) + (j);
 
-  mix1 = 0;
-  mix1 = mix1*4 + ((prq>0+(1-1))+(prq>7+(1-1))+(prq>14+(1-1)));
-  mix1 = (mix1<<8) + ((ffl)&255);
-  mix1 = (mix1<<3) + (((pc)>>5)&7);
-  mix1 = (mix1*79) + M_mx1mask0[j];
+  uint prq_bits1 = prq_bits + (prq > 7);
+  mix1 = (((prq_bits1 << 8) | (ffl & 255)) << 3) | ((pc >> 5) & 7);
+  mix1 = (mix1 * 79) + M_mx1mask0[j];
 
   p0 = p;
   p1 = s6[sm6x].SSE_Pred( t_sq[Extrap(t_st[p0],M_f0C)], su6 );

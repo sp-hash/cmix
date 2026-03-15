@@ -12,6 +12,7 @@ class ByteMixer : public ByteModel {
   ByteMixer(unsigned int num_models, const unsigned int& bit_context,
       const std::vector<bool>& vocab, unsigned int vocab_size, Lstm* lstm);
   void SetInput(int index, float val);
+  void AddInputs(const std::valarray<float>& probs);
   void ByteUpdate();
 
  private:

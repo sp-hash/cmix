@@ -19,20 +19,34 @@ void ByteMixer::SetInput(int index, float val) {
   if (offset_ == vocab_size_) offset_ = 0;
 }
 
+void ByteMixer::AddInputs(const std::valarray<float>& probs) {
+  const float* p = &probs[0];
+  float* inp = &inputs_[0];
+  for (int i = 0; i < 256; ++i) {
+    if (vocab_[i]) {
+      inp[offset_] += p[i];
+      ++offset_;
+    }
+  }
+  if (offset_ >= vocab_size_) offset_ = 0;
+}
+
 void ByteMixer::ByteUpdate() {
-  inputs_ *= 2 / num_models_;
+  inputs_ *= 2.0f / num_models_;
   lstm_->SetInput(inputs_);
   inputs_ = 0;
   const auto& output = lstm_->Perceive(byte_map_[byte_]);
   offset_ = 0;
+  float* p = &probs_[0];
+  const float* out_ptr = &output[0];
   for (int i = 0; i < 256; ++i) {
     if (vocab_[i]) {
-      probs_[i] = output[offset_];
+      p[i] = out_ptr[offset_];
       ++offset_;
     } else {
-      probs_[i] = 0;
+      p[i] = 0;
     }
   }
   offset_ = 0;
-  ByteModel::ByteUpdate();
+  ByteModel::UpdateProbs(probs_);
 }

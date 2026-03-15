@@ -22,15 +22,19 @@ class Mixer {
   float Mix();
   void Perceive(int bit);
 
- private:
-  ContextData* GetContextData();
-  const std::valarray<float>& inputs_;
-  const std::vector<float>& extra_inputs_vec_;
-  std::valarray<float> extra_inputs_;
-  float p_, learning_rate_;
-  const unsigned long long& context_;
-  unsigned long long max_steps_, steps_;
-  std::unordered_map<unsigned int, std::unique_ptr<ContextData>> context_map_;
-};
+     private:
+     ContextData* GetContextData(bool use_cache);
+     const std::valarray<float>& inputs_;
+     const std::vector<float>& extra_inputs_vec_;
+     std::valarray<float> extra_inputs_;
+     float p_, learning_rate_;
+     const unsigned long long& context_;
+     unsigned long long max_steps_, steps_;
+     float last_decay_val_;
+     unsigned long long last_decay_steps_;
+     ContextData* cached_data_;
+     unsigned long long cached_context_;
+     std::unordered_map<unsigned int, std::unique_ptr<ContextData>> context_map_;
+   };
 
 #endif

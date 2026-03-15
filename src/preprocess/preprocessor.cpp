@@ -5,6 +5,8 @@
 #include <vector>
 #include <cstdlib>
 #include <string.h>
+#include <chrono>
+#include <stdio.h>
 
 #include "preprocessor.h"
 #include "dictionary.h"
@@ -55,14 +57,16 @@ void Pretrain(Predictor* p, FILE* dictionary) {
     }
   }
 
-  unsigned int percent = 1 + (len / 10000);
+  auto last_update = std::chrono::steady_clock::now();
   for (unsigned int i = 0; i < len; ++i) {
     unsigned char c = getc(dictionary);
     if (c == '\n') c = ' ';
-    if (i % percent == 0) {
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
       double frac = 100.0 * i / len;
       fprintf(stderr, "\rpretraining: %.2f%%", frac);
       fflush(stderr);
+      last_update = now;
     }
     for (int j = 7; j >= 0; --j) {
       p->Pretrain((c>>j)&1);

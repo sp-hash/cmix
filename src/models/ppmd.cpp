@@ -1332,12 +1332,7 @@ void PPMD::ByteUpdate() {
   ++counter_;
   ppmd_model_->ppmd_UpdateByte(byte_);
   ppmd_model_->ppmd_PrepareByte();
-  for (int i = 0; i < 256; ++i) {
-    probs_[i] = ppmd_model_->sqp[i];
-    if (probs_[i] < 1) probs_[i] = 1;
-  }
-  ByteModel::ByteUpdate();
-  probs_ /= probs_.sum();
+  UpdateProbs(ppmd_model_->sqp);
 }
 
 } // namespace PPMD
