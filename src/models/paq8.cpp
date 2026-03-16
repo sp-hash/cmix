@@ -2,6 +2,11 @@
 
 #define _CRT_SECURE_NO_WARNINGS
 
+#ifdef _MSC_VER
+#pragma arch:avx2
+#define __AVX2__ 1
+#endif
+
 /*
     Copyright (C) 2006 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -464,7 +469,46 @@ static int dot_product (const short* const t, const short* const w, int n);
 
 static void train (const short* const t, short* const w, int n, const int e);
 
-#if defined(__SSE2__)
+#if defined(__AVX2__)
+#include <immintrin.h>
+#define OPTIMIZE "AVX2-"
+
+static int dot_product (const short* const t, const short* const w, int n) {
+  __m256i vsum = _mm256_setzero_si256();
+  int i = 0;
+  int n_proc = n & ~15; // process 16 shorts per loop
+  for (; i < n_proc; i += 16) {
+    __m256i a = _mm256_loadu_si256((const __m256i*)(t + i));
+    __m256i b = _mm256_loadu_si256((const __m256i*)(w + i));
+    __m256i tmp = _mm256_madd_epi16(a, b); // eight 32-bit ints
+    tmp = _mm256_srai_epi32(tmp, 8);
+    vsum = _mm256_add_epi32(vsum, tmp);
+  }
+  // horizontal sum
+  __m128i low = _mm256_castsi256_si128(vsum);
+  __m128i high = _mm256_extracti128_si256(vsum, 1);
+  __m128i s = _mm_add_epi32(low, high);
+  s = _mm_add_epi32(s, _mm_srli_si128(s, 8));
+  s = _mm_add_epi32(s, _mm_srli_si128(s, 4));
+  int sum = _mm_cvtsi128_si32(s);
+  for (; i < n; ++i) sum += (t[i] * w[i]) >> 8;
+  return sum;
+}
+
+static void train (const short* const t, short* const w, int n, const int e) {
+  // scalar fallback for training when using AVX2 dot product
+  if (e) {
+    n = (n + 15) & -16;
+    for (int i = 0; i < n; ++i) {
+      int wt = w[i] + (((t[i] * e * 2 >> 16) + 1) >> 1);
+      if (wt < -32768) wt = -32768;
+      if (wt > 32767) wt = 32767;
+      w[i] = (short)wt;
+    }
+  }
+}
+
+#elif defined(__SSE2__)
 #include <emmintrin.h>
 #define OPTIMIZE "SSE2-"
 
@@ -484,13 +528,21 @@ static void train (const short* const t, short* const w, int n, const int e) {
   if (e) {
     const __m128i one = _mm_set1_epi16 (1);
     const __m128i err = _mm_set1_epi16 (short(e));
-    while ((n -= 8) >= 0) {
-      __m128i tmp = _mm_adds_epi16 (*(__m128i *) &t[n], *(__m128i *) &t[n]);
+    int n_proc = n & ~7;  // Process in multiples of 8
+
+    for (int i = 0; i < n_proc; i += 8) {
+      __m128i tmp = _mm_adds_epi16 (*(__m128i *) &t[i], *(__m128i *) &t[i]);
       tmp = _mm_mulhi_epi16 (tmp, err);
       tmp = _mm_adds_epi16 (tmp, one);
       tmp = _mm_srai_epi16 (tmp, 1);
-      tmp = _mm_adds_epi16 (tmp, *(__m128i *) &w[n]);
-      *(__m128i *) &w[n] = tmp;
+      tmp = _mm_adds_epi16 (tmp, *(__m128i *) &w[i]);
+      *(__m128i *) &w[i] = tmp;
+    }
+
+    // Handle remainder
+    for (int i = n_proc; i < n; ++i) {
+      short delta = ((t[i] + t[i]) * short(e) + 1) >> 1;
+      w[i] = w[i] + delta;
     }
   }
 }
@@ -501,18 +553,29 @@ static void train (const short* const t, short* const w, int n, const int e) {
 
 static int dot_product (const short* const t, const short* const w, int n) {
   __m64 sum = _mm_setzero_si64 ();
-  while ((n -= 8) >= 0) {
-    __m64 tmp = _mm_madd_pi16 (*(__m64 *) &t[n], *(__m64 *) &w[n]);
+  int n_proc = n & ~7;
+  int i = 0;
+
+  // Process 8 shorts at a time (2x __m64 operations)
+  for (; i < n_proc; i += 8) {
+    __m64 tmp = _mm_madd_pi16 (*(__m64 *) &t[i], *(__m64 *) &w[i]);
     tmp = _mm_srai_pi32 (tmp, 8);
     sum = _mm_add_pi32 (sum, tmp);
 
-    tmp = _mm_madd_pi16 (*(__m64 *) &t[n + 4], *(__m64 *) &w[n + 4]);
+    tmp = _mm_madd_pi16 (*(__m64 *) &t[i + 4], *(__m64 *) &w[i + 4]);
     tmp = _mm_srai_pi32 (tmp, 8);
     sum = _mm_add_pi32 (sum, tmp);
   }
+
   sum = _mm_add_pi32 (sum, _mm_srli_si64 (sum, 32));
-  const int retval = _mm_cvtsi64_si32 (sum);
+  int retval = _mm_cvtsi64_si32 (sum);
   _mm_empty();
+
+  // Handle remainder
+  for (; i < n; ++i) {
+    retval += ((t[i] * w[i]) >> 8);
+  }
+
   return retval;
 }
 

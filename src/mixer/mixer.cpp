@@ -4,6 +4,36 @@
 
 #include <numeric>
 #include <math.h>
+#include <immintrin.h>
+#include <cstring>
+
+// AVX2 helpers (safe fallbacks for small n)
+static inline float dot_product_f(const float* a, const float* b, int n) {
+  int i = 0;
+  __m256 vsum = _mm256_setzero_ps();
+  for (; i + 7 < n; i += 8) {
+    __m256 va = _mm256_loadu_ps(a + i);
+    __m256 vb = _mm256_loadu_ps(b + i);
+    vsum = _mm256_add_ps(vsum, _mm256_mul_ps(va, vb));
+  }
+  alignas(32) float tmp[8];
+  _mm256_storeu_ps(tmp, vsum);
+  float sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+  for (; i < n; ++i) sum += a[i] * b[i];
+  return sum;
+}
+
+static inline void saxpy_f(float* y, const float* x, int n, float a) {
+  int i = 0;
+  __m256 va = _mm256_set1_ps(a);
+  for (; i + 7 < n; i += 8) {
+    __m256 vx = _mm256_loadu_ps(x + i);
+    __m256 vy = _mm256_loadu_ps(y + i);
+    vy = _mm256_add_ps(vy, _mm256_mul_ps(va, vx));
+    _mm256_storeu_ps(y + i, vy);
+  }
+  for (; i < n; ++i) y[i] += a * x[i];
+}
 
 Mixer::Mixer(const std::valarray<float>& inputs,
     const std::vector<float>& extra_inputs,
@@ -43,25 +73,19 @@ ContextData* Mixer::GetContextData(bool use_cache) {
 
 float Mixer::Mix() {
   ContextData* data = GetContextData(true);
-  float p = 0;
   const float* w = &data->weights[0];
   const float* inp = &inputs_[0];
   int n = inputs_.size();
-  for (int i = 0; i < n; ++i) {
-    p += inp[i] * w[i];
-  }
-  p_ = p;
+  // vectorized dot product
+  p_ = (n > 0) ? dot_product_f(inp, w, n) : 0.0f;
   n = extra_inputs_.size();
   if (n > 0) {
     const float* e_vec = &extra_inputs_vec_[0];
     float* e_inp = &extra_inputs_[0];
     const float* ew = &data->extra_weights[0];
-    float e = 0;
-    for (int i = 0; i < n; ++i) {
-      e_inp[i] = e_vec[i];
-      e += e_inp[i] * ew[i];
-    }
-    p_ += e;
+    // copy extra inputs for later updates and compute dot product
+    std::memcpy(e_inp, e_vec, sizeof(float) * n);
+    p_ += dot_product_f(e_inp, ew, n);
   }
   return p_;
 }
@@ -87,7 +111,8 @@ void Mixer::Perceive(int bit) {
   if (n > 0) {
     const float* inp = &inputs_[0];
     float* w = &data->weights[0];
-    for (int i = 0; i < n; ++i) w[i] -= update * inp[i];
+    // vectorized weight update: w += (-update) * inp
+    saxpy_f(w, inp, n, -update);
     if ((data->steps & 1023) == 0) {
       for (int i = 0; i < n; ++i) w[i] *= 1.0f - 3.0e-6f;
     }
@@ -97,7 +122,7 @@ void Mixer::Perceive(int bit) {
   if (n > 0) {
     const float* e_inp = &extra_inputs_[0];
     float* ew = &data->extra_weights[0];
-    for (int i = 0; i < n; ++i) ew[i] -= update * e_inp[i];
+    saxpy_f(ew, e_inp, n, -update);
     if ((data->steps & 1023) == 0) {
       for (int i = 0; i < n; ++i) ew[i] *= 1.0f - 3.0e-6f;
     }

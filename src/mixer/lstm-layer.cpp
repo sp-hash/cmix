@@ -5,8 +5,38 @@
 #include <math.h>
 #include <algorithm>
 #include <numeric>
+#include <immintrin.h>
 
 namespace {
+
+// Small AVX2 helpers: dot product and saxpy (y += a*x)
+static inline float dot_product_f(const float* a, const float* b, int n) {
+  int i = 0;
+  __m256 vsum = _mm256_setzero_ps();
+  for (; i + 7 < n; i += 8) {
+    __m256 va = _mm256_loadu_ps(a + i);
+    __m256 vb = _mm256_loadu_ps(b + i);
+    vsum = _mm256_add_ps(vsum, _mm256_mul_ps(va, vb));
+  }
+  alignas(32) float tmp[8];
+  _mm256_storeu_ps(tmp, vsum);
+  float sum = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+  for (; i < n; ++i) sum += a[i] * b[i];
+  return sum;
+}
+
+static inline void saxpy_f(float* y, const float* x, int n, float a) {
+  int i = 0;
+  __m256 va = _mm256_set1_ps(a);
+  for (; i + 7 < n; i += 8) {
+    __m256 vx = _mm256_loadu_ps(x + i);
+    __m256 vy = _mm256_loadu_ps(y + i);
+    vy = _mm256_add_ps(vy, _mm256_mul_ps(va, vx));
+    _mm256_storeu_ps(y + i, vy);
+  }
+  for (; i < n; ++i) y[i] += a * x[i];
+}
+
 
 void Adam(std::valarray<float>* g, std::valarray<float>* m,
     std::valarray<float>* v, std::valarray<float>* w, float learning_rate,
@@ -23,6 +53,7 @@ void Adam(std::valarray<float>* g, std::valarray<float>* m,
     b1t = 1.0f - pow(beta1, update_limit);
     b2t = 1.0f - pow(beta2, update_limit);
   }
+
 
   float* g_ptr = &(*g)[0];
   float* m_ptr = &(*m)[0];
@@ -112,12 +143,9 @@ void LstmLayer::ForwardPass(NeuronLayer& neurons,
   float* norm_ptr = &neurons.norm_[epoch_][0];
   for (unsigned int i = 0; i < num_cells_; ++i) {
     const float* w = &neurons.weights_[i][0];
-    float f = w[input_symbol];
     const float* w_off = w + output_size_;
-    for (int j = 0; j < num_inp; ++j) {
-      f += inp_ptr[j] * w_off[j];
-    }
-    norm_ptr[i] = f;
+    // Use vectorized dot product for the input-weight multiply
+    norm_ptr[i] = w[input_symbol] + dot_product_f(inp_ptr, w_off, num_inp);
   }
   float sq_sum = 0;
   for (unsigned int i = 0; i < num_cells_; ++i) {
@@ -236,23 +264,15 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
   if (layer > 0) {
     float* herr_ptr = &(*hidden_error)[0];
     for (unsigned int i = 0; i < num_cells_; ++i) {
-      float f = 0;
       const float* trans = &neurons.transpose_[num_cells_ + i][0];
-      for (unsigned int j = 0; j < num_cells_; ++j) {
-        f += err_ptr[j] * trans[j];
-      }
-      herr_ptr[i] += f;
+      herr_ptr[i] += dot_product_f(err_ptr, trans, num_cells_);
     }
   }
   if (epoch > 0) {
     float* serr_ptr = &stored_error_[0];
     for (unsigned int i = 0; i < num_cells_; ++i) {
-      float f = 0;
       const float* trans = &neurons.transpose_[i][0];
-      for (unsigned int j = 0; j < num_cells_; ++j) {
-        f += err_ptr[j] * trans[j];
-      }
-      serr_ptr[i] += f;
+      serr_ptr[i] += dot_product_f(err_ptr, trans, num_cells_);
     }
   }
 
@@ -261,9 +281,8 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
   for (unsigned int i = 0; i < num_cells_; ++i) {
     float err = err_ptr[i];
     float* up_ptr = &neurons.update_[i][output_size_];
-    for (int j = 0; j < inp_size; ++j) {
-      up_ptr[j] += err * inp_ptr[j];
-    }
+    // vectorized accumulation: up_ptr[j] += err * inp_ptr[j]
+    saxpy_f(up_ptr, inp_ptr, inp_size, err);
     neurons.update_[i][input_symbol] += err;
   }
 

@@ -2,6 +2,11 @@
 
 #define _CRT_SECURE_NO_WARNINGS
 
+#ifdef _MSC_VER
+#pragma arch:avx2
+#define __AVX2__ 1
+#endif
+
 /*
     Copyright (C) 2024 Kaido Orav
 
@@ -604,13 +609,31 @@ struct Mixer1 {
 #else
 
 // dot_product returns dot product t*w of n elements.  n is rounded
-// up to a multiple of 8.  Result is scaled down by 8 bits.
+// up to a multiple of 16.  Result is scaled down by 8 bits.
 int dot_product(short *t, short *w, int n) {
+#ifdef __SSE2__
+  __m128i sum = _mm_setzero_si128();
+  int n_proc = (n + 15) & -16;
+
+  // Process 8 shorts at a time with SSE2
+  for (int i = 0; i < n_proc; i += 8) {
+    __m128i tmp = _mm_madd_epi16(_mm_loadu_si128((__m128i*)&t[i]), 
+                                  _mm_loadu_si128((__m128i*)&w[i]));
+    tmp = _mm_srai_epi32(tmp, 8);
+    sum = _mm_add_epi32(sum, tmp);
+  }
+
+  // Horizontal sum
+  __m128i tmp = _mm_add_epi32(sum, _mm_srli_si128(sum, 8));
+  tmp = _mm_add_epi32(tmp, _mm_srli_si128(tmp, 4));
+  return _mm_cvtsi128_si32(tmp);
+#else
   int sum=0;
   n=(n+15)&-16;
   for (int i=0; i<n; i+=2)
     sum+=(t[i]*w[i]+t[i+1]*w[i+1]) >> 8;
   return sum;
+#endif
 }
 // Train neural network weights w[n] given inputs t[n] and err.
 // w[i] += t[i]*err, i=0..n-1.  t, w, err are signed 16 bits (+- 32K).

@@ -1,4 +1,6 @@
 #include "byte-mixer.h"
+#include <algorithm>
+#include <cstring>
 
 ByteMixer::ByteMixer(unsigned int num_models, const unsigned int& bit_context,
     const std::vector<bool>& vocab, unsigned int vocab_size, Lstm* lstm) :
@@ -9,6 +11,9 @@ ByteMixer::ByteMixer(unsigned int num_models, const unsigned int& bit_context,
     byte_map_[i] = offset_;
     if (vocab_[i]) ++offset_;
   }
+  // build list of vocab indices for fast updates
+  vocab_indices_.reserve(vocab_size);
+  for (int i = 0; i < 256; ++i) if (vocab_[i]) vocab_indices_.push_back(i);
   offset_ = 0;
 }
 
@@ -36,17 +41,11 @@ void ByteMixer::ByteUpdate() {
   lstm_->SetInput(inputs_);
   inputs_ = 0;
   const auto& output = lstm_->Perceive(byte_map_[byte_]);
-  offset_ = 0;
-  float* p = &probs_[0];
   const float* out_ptr = &output[0];
-  for (int i = 0; i < 256; ++i) {
-    if (vocab_[i]) {
-      p[i] = out_ptr[offset_];
-      ++offset_;
-    } else {
-      p[i] = 0;
-    }
+  // zero probs and copy vocab outputs into the correct positions
+  std::fill_n(&probs_[0], 256, 0.0f);
+  for (unsigned int k = 0; k < vocab_indices_.size(); ++k) {
+    probs_[vocab_indices_[k]] = out_ptr[k];
   }
-  offset_ = 0;
   ByteModel::UpdateProbs(probs_);
 }

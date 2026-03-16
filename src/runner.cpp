@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <vector>
 #include <string.h>
+#include <intrin.h>
 
 #include "preprocess/preprocessor.h"
 #include "coder/encoder.h"
@@ -344,6 +345,67 @@ bool RunDecompression(const std::string& input_path,
 }
 
 int main(int argc, char* argv[]) {
+  // Detect CPU SIMD support and print selected architecture
+  auto detect_and_print_simd = [](){
+    int info[4] = {0,0,0,0};
+    __cpuid(info, 0);
+    int nIds = info[0];
+    bool sse = false, sse2 = false, sse3 = false, ssse3 = false;
+    bool sse41 = false, sse42 = false, avx = false, avx2 = false, avx512f = false;
+    if (nIds >= 1) {
+      __cpuid(info, 1);
+      int ecx = info[2];
+      int edx = info[3];
+      sse3 = (ecx & (1 << 0)) != 0;
+      ssse3 = (ecx & (1 << 9)) != 0;
+      sse41 = (ecx & (1 << 19)) != 0;
+      sse42 = (ecx & (1 << 20)) != 0;
+      avx = (ecx & (1 << 28)) != 0;
+      sse = (edx & (1 << 25)) != 0;
+      sse2 = (edx & (1 << 26)) != 0;
+    }
+    if (nIds >= 7) {
+      int info7[4] = {0,0,0,0};
+      __cpuidex(info7, 7, 0);
+      int ebx = info7[1];
+      avx2 = (ebx & (1 << 5)) != 0;
+      avx512f = (ebx & (1 << 16)) != 0; // AVX-512 Foundation
+    }
+
+    unsigned long long xcr0 = 0;
+#if defined(_XCR_XFEATURE_ENABLED_MASK)
+    xcr0 = _xgetbv(0);
+#elif defined(__GNUC__)
+    // no-op for compilers without _xgetbv macro
+#endif
+    bool os_avx = (xcr0 & 0x6) == 0x6; // XCR0[2:1] == 11 for AVX
+    bool os_avx512 = (xcr0 & 0xE0) == 0xE0; // XCR0[7:5] == 111 for AVX-512
+
+    bool have_avx = avx && os_avx;
+    bool have_avx2 = avx2 && have_avx;
+    bool have_avx512 = avx512f && have_avx && os_avx512;
+
+    fprintf(stderr, "SIMD support:\n");
+    fprintf(stderr, "  SSE : %s\n", sse ? "YES" : "NO");
+    fprintf(stderr, "  SSE2: %s\n", sse2 ? "YES" : "NO");
+    fprintf(stderr, "  SSE3: %s\n", sse3 ? "YES" : "NO");
+    fprintf(stderr, "  SSSE3: %s\n", ssse3 ? "YES" : "NO");
+    fprintf(stderr, "  SSE4.1: %s\n", sse41 ? "YES" : "NO");
+    fprintf(stderr, "  SSE4.2: %s\n", sse42 ? "YES" : "NO");
+    fprintf(stderr, "  AVX : %s\n", have_avx ? "YES" : "NO");
+    fprintf(stderr, "  AVX2: %s\n", have_avx2 ? "YES" : "NO");
+    fprintf(stderr, "  AVX-512F: %s\n", have_avx512 ? "YES" : "NO");
+
+    const char* selected = "SCALAR";
+    if (have_avx512) selected = "AVX512";
+    else if (have_avx2) selected = "AVX2";
+    else if (have_avx) selected = "AVX";
+    else if (sse42) selected = "SSE4.2";
+    else if (sse2) selected = "SSE2";
+
+    fprintf(stderr, "Selected architecture: %s\n", selected);
+  };
+  detect_and_print_simd();
   if (argc < 4) return Help();
 
   unsigned long long memory_limit = 0;

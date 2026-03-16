@@ -21,6 +21,7 @@ class ByteMixer : public ByteModel {
   std::valarray<int> byte_map_;
   std::valarray<float> inputs_;
   unsigned int num_models_, vocab_size_, offset_;
+  std::vector<int> vocab_indices_;
 };
 
 #endif
