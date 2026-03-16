@@ -178,8 +178,10 @@ bool RunCompression(bool enable_preprocess, bool text_mode,
     unsigned long long* input_bytes, unsigned long long* output_bytes) {
   FILE* data_in = fopen(input_path.c_str(), "rb");
   if (!data_in) return false;
+  setvbuf(data_in, NULL, _IOFBF, 1 << 20);
   FILE* temp_out = fopen(temp_path.c_str(), "wb");
   if (!temp_out) return false;
+  setvbuf(temp_out, NULL, _IOFBF, 1 << 20);
 
   fseek(data_in, 0L, SEEK_END);
   *input_bytes = ftell(data_in);

@@ -27,10 +27,10 @@ bool IsAscii(int byte) {
 }
 
 #define bswap(x) \
-+   ((((x) & 0xff000000) >> 24) | \
-+    (((x) & 0x00ff0000) >>  8) | \
-+    (((x) & 0x0000ff00) <<  8) | \
-+    (((x) & 0x000000ff) << 24))
+    ((((x) & 0xff000000) >> 24) | \
+     (((x) & 0x00ff0000) >>  8) | \
+     (((x) & 0x0000ff00) <<  8) | \
+     (((x) & 0x000000ff) << 24))
 
 #define IMG_DET_NOHDR(type,start_pos,width,height) return detd=(width)*(height),info=(width),fseek(in, start+(start_pos), SEEK_SET),(type)
 
@@ -108,9 +108,29 @@ Filetype detect(FILE* in, int n, Filetype type) {
   int pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0,pamatr=0,pamd=0;
   char pgm_buf[32];
 
+  const int BUF_SIZE = 65536;
+  std::vector<U8> buffer(BUF_SIZE);
+  int buf_pos = 0;
+  int buf_len = 0;
+
+  auto last_progress_update = std::chrono::steady_clock::now();
+
   for (int i=0; i<n; ++i) {
-    int c=getc(in);
-    if (c==EOF) return (Filetype)(-1);
+    if (buf_pos >= buf_len) {
+      buf_len = fread(&buffer[0], 1, std::min((int)(n - i), BUF_SIZE), in);
+      buf_pos = 0;
+      if (buf_len <= 0) return (Filetype)(-1);
+      
+      auto now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::seconds>(now - last_progress_update).count() >= 5) {
+        double frac = 100.0 * i / n;
+        fprintf(stderr, "\rdetecting: %.2f%%", frac);
+        fflush(stderr);
+        last_progress_update = now;
+      }
+    }
+    int c = buffer[buf_pos++];
+
     buf2=buf2<<8|buf1>>24;
     buf1=buf1<<8|buf0>>24;
     buf0=buf0<<8|c;
@@ -172,10 +192,27 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (IsAscii(c)) {
         ascii_run -= 2;
         if (ascii_run < 0) ascii_run = 0;
+        
+        // Fast skip for TEXT if we are in the middle of an ASCII run
+        if (ascii_run == 0) {
+          while (i + 1 < n) {
+            if (buf_pos >= buf_len) break;
+            int next_c = buffer[buf_pos];
+            if (IsAscii(next_c)) {
+              buf_pos++;
+              i++;
+              buf2=buf2<<8|buf1>>24;
+              buf1=buf1<<8|buf0>>24;
+              buf0=buf0<<8|next_c;
+            } else {
+              break;
+            }
+          }
+        }
       } else {
         ascii_run += 3;
         if (ascii_run > 300) {
-          return fseek(in, ftell(in) - 100, SEEK_SET), DEFAULT;
+          return fseek(in, start + i - 100, SEEK_SET), DEFAULT;
         }
       }
     }
@@ -255,6 +292,7 @@ Filetype detect(FILE* in, int n, Filetype type) {
     
     // Detect .tiff image
     if (buf1==0x49492a00 && n>i+(int)bswap(buf0)) {
+      fseek(in, start + i + 1, SEEK_SET); // Sync file position before inner reads
       long savedpos=ftell(in);
       fseek(in, start+i+bswap(buf0)-7, SEEK_SET);
 
@@ -292,13 +330,22 @@ Filetype detect(FILE* in, int n, Filetype type) {
         }
       }
       fseek(in, savedpos, SEEK_SET);
+      buf_pos = buf_len = 0; // Invalidate buffer after inner fseeks
     }
   }
   return type;
 }
 
 void encode_default(FILE* in, FILE* out, int len) {
-  while (len--) putc(getc(in), out);
+  const int BUF_SIZE = 65536;
+  std::vector<char> buf(BUF_SIZE);
+  while (len > 0) {
+    int to_read = std::min(len, BUF_SIZE);
+    int read = fread(&buf[0], 1, to_read, in);
+    if (read <= 0) break;
+    fwrite(&buf[0], 1, read, out);
+    len -= read;
+  }
 }
 
 int decode_default(FILE* in) {
@@ -450,8 +497,14 @@ void encode_text(FILE* in, FILE* out, int len, std::string temp_path,
     FILE* dictionary) {
   if (dictionary == NULL) {
     putc(0, out);
-    for (int i = 0; i < len; ++i) {
-      putc(getc(in), out);
+    const int BUF_SIZE = 65536;
+    std::vector<char> buf(BUF_SIZE);
+    while (len > 0) {
+      int to_read = std::min(len, BUF_SIZE);
+      int read = fread(&buf[0], 1, to_read, in);
+      if (read <= 0) break;
+      fwrite(&buf[0], 1, read, out);
+      len -= read;
     }
     return;
   }
@@ -575,6 +628,7 @@ void Encode(FILE* in, FILE* out, bool text_mode, unsigned long long n,
     const std::string& temp_path, FILE* dictionary) {
   std::vector<double> block_stats(5);
   unsigned long long size = n;
+  unsigned long long total_processed = 0;
   while(n > 0) {
     int segment = n;
     if (n > kMaxSegment) segment = kMaxSegment;
@@ -583,6 +637,10 @@ void Encode(FILE* in, FILE* out, bool text_mode, unsigned long long n,
         &segment_stats);
     for (int i = 0; i < 5; ++i) block_stats[i] += segment_stats[i];
     n -= segment;
+    total_processed += segment;
+    double frac = 100.0 * total_processed / size;
+    fprintf(stderr, "\rpreprocessing: %.2f%%", frac);
+    fflush(stderr);
   }
   for (int i = 0; i < 5; ++i) block_stats[i] /= size;
   printf("\rDetected block types:");
@@ -636,6 +694,10 @@ int DecodeByte(FILE* in, FILE* dictionary) {
 }
 
 void Decode(FILE* in, FILE* out, FILE* dictionary) {
+  unsigned long long total_processed = 0;
+  auto start_time = std::chrono::steady_clock::now();
+  auto last_update = start_time;
+  
   while (true) {
     int result = DecodeByte(in, dictionary);
     if (result == -1) {
@@ -643,6 +705,16 @@ void Decode(FILE* in, FILE* out, FILE* dictionary) {
       return;
     }
     putc(result, out);
+    
+    total_processed++;
+    if ((total_processed & 0xFFFFF) == 0) {
+      auto now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
+        fprintf(stderr, "\rdecoding: %llu MB", total_processed / (1024 * 1024));
+        fflush(stderr);
+        last_update = now;
+      }
+    }
   }
 }
 
