@@ -52,15 +52,17 @@ float Mixer::Mix() {
   }
   p_ = p;
   n = extra_inputs_.size();
-  const float* e_vec = &extra_inputs_vec_[0];
-  float* e_inp = &extra_inputs_[0];
-  const float* ew = &data->extra_weights[0];
-  float e = 0;
-  for (int i = 0; i < n; ++i) {
-    e_inp[i] = e_vec[i];
-    e += e_inp[i] * ew[i];
+  if (n > 0) {
+    const float* e_vec = &extra_inputs_vec_[0];
+    float* e_inp = &extra_inputs_[0];
+    const float* ew = &data->extra_weights[0];
+    float e = 0;
+    for (int i = 0; i < n; ++i) {
+      e_inp[i] = e_vec[i];
+      e += e_inp[i] * ew[i];
+    }
+    p_ += e;
   }
-  p_ += e;
   return p_;
 }
 
@@ -81,19 +83,23 @@ void Mixer::Perceive(int bit) {
   if (data->steps > max_steps_) {
     max_steps_ = data->steps;
   }
-  const float* inp = &inputs_[0];
-  const float* e_inp = &extra_inputs_[0];
-  float* w = &data->weights[0];
-  float* ew = &data->extra_weights[0];
   int n = inputs_.size();
-  for (int i = 0; i < n; ++i) w[i] -= update * inp[i];
-  n = extra_inputs_.size();
-  for (int i = 0; i < n; ++i) ew[i] -= update * e_inp[i];
+  if (n > 0) {
+    const float* inp = &inputs_[0];
+    float* w = &data->weights[0];
+    for (int i = 0; i < n; ++i) w[i] -= update * inp[i];
+    if ((data->steps & 1023) == 0) {
+      for (int i = 0; i < n; ++i) w[i] *= 1.0f - 3.0e-6f;
+    }
+  }
 
-  if ((data->steps & 1023) == 0) {
-    n = data->weights.size();
-    for (int i = 0; i < n; ++i) w[i] *= 1.0f - 3.0e-6f;
-    n = data->extra_weights.size();
-    for (int i = 0; i < n; ++i) ew[i] *= 1.0f - 3.0e-6f;
+  n = extra_inputs_.size();
+  if (n > 0) {
+    const float* e_inp = &extra_inputs_[0];
+    float* ew = &data->extra_weights[0];
+    for (int i = 0; i < n; ++i) ew[i] -= update * e_inp[i];
+    if ((data->steps & 1023) == 0) {
+      for (int i = 0; i < n; ++i) ew[i] *= 1.0f - 3.0e-6f;
+    }
   }
 }

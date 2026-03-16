@@ -41,34 +41,45 @@ Dictionary::Dictionary(FILE* dictionary, bool encode, bool decode) {
   fseek(dictionary, 0L, SEEK_END);
   unsigned long long len = ftell(dictionary);
   fseek(dictionary, 0L, SEEK_SET);
+
+  const int BUF_SIZE = 1 << 16;
+  std::vector<char> buffer(BUF_SIZE);
   std::string line;
   int line_count = 0;
   const int kBoundary1 = 80, kBoundary2 = kBoundary1 + 3840,
       kBoundary3 = kBoundary2 + 40960, kBoundary4 = kBoundary3 + 81920;
-  for (unsigned pos = 0; pos < len; ++pos) {
-    unsigned char c = getc(dictionary);
-    if (c >= 'a' && c <= 'z') line += c;
-    else if (!line.empty()) {
-      if (line.size() > longest_word_) longest_word_ = line.size();
-      unsigned int bytes;
-      if (line_count < kBoundary1) {
-        bytes = 0x80 + line_count;
-      } else if (line_count < kBoundary2) {
-        bytes = 0xD0 + ((line_count-kBoundary1) / 80);
-        bytes += (0x80 + ((line_count-kBoundary1) % 80)) << 8;
-      } else if (line_count < kBoundary3) {
-        bytes = 0xF0 + (((line_count-kBoundary2) / 80) / 32);
-        bytes += (0xD0 + (((line_count-kBoundary2) / 80) % 32)) << 8;
-        bytes += (0x80 + ((line_count-kBoundary2) % 80)) << 16;
-      } else if (line_count < kBoundary4) {
-        bytes = 0xD0 + (((line_count-kBoundary2) / 80) / 32);
-        bytes += (0xD0 + (((line_count-kBoundary2) / 80) % 32)) << 8;
-        bytes += (0x80 + ((line_count-kBoundary2) % 80)) << 16;
+
+  for (unsigned long long pos = 0; pos < len; ) {
+    size_t to_read = (len - pos > BUF_SIZE) ? BUF_SIZE : (size_t)(len - pos);
+    size_t read = fread(&buffer[0], 1, to_read, dictionary);
+    if (read == 0) break;
+    pos += read;
+
+    for (size_t i = 0; i < read; ++i) {
+      unsigned char c = (unsigned char)buffer[i];
+      if (c >= 'a' && c <= 'z') line += c;
+      else if (!line.empty()) {
+        if (line.size() > longest_word_) longest_word_ = line.size();
+        unsigned int bytes;
+        if (line_count < kBoundary1) {
+          bytes = 0x80 + line_count;
+        } else if (line_count < kBoundary2) {
+          bytes = 0xD0 + ((line_count-kBoundary1) / 80);
+          bytes += (0x80 + ((line_count-kBoundary1) % 80)) << 8;
+        } else if (line_count < kBoundary3) {
+          bytes = 0xF0 + (((line_count-kBoundary2) / 80) / 32);
+          bytes += (0xD0 + (((line_count-kBoundary2) / 80) % 32)) << 8;
+          bytes += (0x80 + ((line_count-kBoundary2) % 80)) << 16;
+        } else if (line_count < kBoundary4) {
+          bytes = 0xD0 + (((line_count-kBoundary2) / 80) / 32);
+          bytes += (0xD0 + (((line_count-kBoundary2) / 80) % 32)) << 8;
+          bytes += (0x80 + ((line_count-kBoundary2) % 80)) << 16;
+        }
+        if (encode) byte_map_[line] = bytes;
+        if (decode) reverse_map_[bytes] = line;
+        ++line_count;
+        line.clear();
       }
-      if (encode) byte_map_[line] = bytes;
-      if (decode) reverse_map_[bytes] = line;
-      ++line_count;
-      line.clear();
     }
   }
 }

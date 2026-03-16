@@ -65,7 +65,16 @@ inline int max(int a, int b) {return a<b?b:a;}
 
 using preprocessor::Filetype;
 
-void quit(const char* message=0) {}
+void quit(const char* message=0, unsigned long long bytes=0) {
+  if (message) printf("Error: %s", message);
+  if (bytes > 0) {
+    if (bytes >= (1ull<<30)) printf(" (Attempted to allocate %.2f GB)", (double)bytes / (1ull<<30));
+    else if (bytes >= (1ull<<20)) printf(" (Attempted to allocate %.2f MB)", (double)bytes / (1ull<<20));
+    else printf(" (Attempted to allocate %llu bytes)", bytes);
+  }
+  printf("\n");
+  exit(1);
+}
 
 template <class T, int ALIGN=0> class Array {
 private:
@@ -118,7 +127,7 @@ template<class T, int ALIGN> void Array<T, ALIGN>::create(U32 i) {
   }
   const size_t sz=ALIGN+n*sizeof(T);
   ptr = (char*)calloc(sz, 1);
-  if (!ptr) quit("Out of memory");
+  if (!ptr) quit("Out of memory", (unsigned long long)sz);
   data = (ALIGN ? (T*)(ptr+ALIGN) : (T*)ptr);
 }
 
@@ -201,7 +210,7 @@ void setFileSize(unsigned long long f) {
 }
 
 unsigned long long MEM() {
-  unsigned long long m = 0x10000UL<<level;
+  unsigned long long m = 0x8000UL<<level;
   if (max_mem > 0 && m > max_mem) return max_mem;
   return m;
 }
@@ -212,6 +221,10 @@ unsigned long long MEM_ADAPTED(unsigned long long multiplier) {
   if (paq8::file_size > 0) {
     // 256x file size is usually enough for all context orders plus collision safety
     unsigned long long safe_size = paq8::file_size * 256;
+
+    // Cap at a reasonable limit (e.g., 128MB * multiplier) to avoid OOM on 1GB+ files
+    unsigned long long max_model_mem = multiplier * 0x08000000ULL; // 128MB * multiplier
+    if (safe_size > max_model_mem) safe_size = max_model_mem;
     if (base > safe_size && safe_size > 0) {
       // Ensure we don't go below a reasonable minimum for the specific model
       if (safe_size < multiplier * 0x100000) safe_size = multiplier * 0x100000;
@@ -1073,6 +1086,7 @@ public:
 };
 
 inline U8* ContextMap::E::get(U16 ch) {
+  if (!this) return nullptr;
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
   for (int i=0; i<7; ++i) {
@@ -1105,79 +1119,87 @@ inline void ContextMap::set(U64 cx) {
 
 int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
 
-  int result=0;
-  for (int i=0; i<cn; ++i) {
+  int result = 0;
+  for (int i = 0; i < cn; ++i) {
     if (cp[i]) {
-      int ns=nex(*cp[i], y1);
-      if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;
-      *cp[i]=ns;
+      int ns = nex(*cp[i], y1);
+      if (ns >= 204 && rnd() << ((452 - ns) >> 3)) ns -= 4;
+      *cp[i] = ns;
     }
 
-    if (bp>1 && runp[i][0]==0)
-      cp[i]=nullptr;
+    if (bp > 1 && runp[i] && runp[i][0] == 0)
+      cp[i] = nullptr;
     else {
-      switch(bp) {
-        case 1: case 3: case 6: cp[i]=cp0[i]+1+(c0&1); break;
-        case 4: case 7: cp[i]=cp0[i]+3+(c0&3); break;
+      switch (bp) {
+        case 1: case 3: case 6: cp[i] = cp0[i] ? cp0[i] + 1 + (c0 & 1) : nullptr; break;
+        case 4: case 7: cp[i] = cp0[i] ? cp0[i] + 3 + (c0 & 3) : nullptr; break;
         case 2: case 5: {
           const U16 checksum = chk[i];
           const U32 ctx = cxt[i];
-          cp0[i]=cp[i]=t[(ctx+c0)&mask].get(checksum); break;
+          const U32 idx = (ctx + c0) & mask;
+          cp0[i] = cp[i] = (idx < t.size()) ? t[idx].get(checksum) : nullptr; break;
         }
         default:
         {
           const U16 checksum = chk[i];
           const U32 ctx = cxt[i];
-          cp0[i]=cp[i]=t[(ctx+c0)&mask].get(checksum);
+          const U32 idx = (ctx + c0) & mask;
+          cp0[i] = cp[i] = (idx < t.size()) ? t[idx].get(checksum) : nullptr;
           // Update pending bit histories for bits 2-7
-          if (cp0[i][3]==2) {
-            const int c=cp0[i][4]+256;
-            U8 *p=t[(ctx+(c>>6))&mask].get(checksum);
-            p[0]=1+((c>>5)&1);
-            p[1+((c>>5)&1)]=1+((c>>4)&1);
-            p[3+((c>>4)&3)]=1+((c>>3)&1);
-            p=t[(ctx+(c>>3))&mask].get(checksum);
-            p[0]=1+((c>>2)&1);
-            p[1+((c>>2)&1)]=1+((c>>1)&1);
-            p[3+((c>>1)&3)]=1+(c&1);
-            cp0[i][6]=0;
+          if (cp0[i] && cp0[i][3] == 2) {
+            const int c = cp0[i][4] + 256;
+            U8* p = t[(ctx + (c >> 6)) & mask].get(checksum);
+            if (p) {
+              p[0] = 1 + ((c >> 5) & 1);
+              p[1 + ((c >> 5) & 1)] = 1 + ((c >> 4) & 1);
+              p[3 + ((c >> 4) & 3)] = 1 + ((c >> 3) & 1);
+            }
+            p = t[(ctx + (c >> 3)) & mask].get(checksum);
+            if (p) {
+              p[0] = 1 + ((c >> 2) & 1);
+              p[1 + ((c >> 2) & 1)] = 1 + ((c >> 1) & 1);
+              p[3 + ((c >> 1) & 3)] = 1 + (c & 1);
+            }
+            cp0[i][6] = 0;
           }
           // Update run count of previous context
-          if (runp[i][0]==0)  // new context
-            runp[i][0]=2, runp[i][1]=c1;
-          else if (runp[i][1]!=c1)  // different byte in context
-            runp[i][0]=1, runp[i][1]=c1;
-          else if (runp[i][0]<254)  // same byte in context
-            runp[i][0]+=2;
-          else if (runp[i][0]==255)
-            runp[i][0]=128;
-          runp[i]=cp0[i]+3;
+          if (runp[i]) {
+            if (runp[i][0] == 0)  // new context
+              runp[i][0] = 2, runp[i][1] = c1;
+            else if (runp[i][1] != c1)  // different byte in context
+              runp[i][0] = 1, runp[i][1] = c1;
+            else if (runp[i][0] < 254)  // same byte in context
+              runp[i][0] += 2;
+            else if (runp[i][0] == 255)
+              runp[i][0] = 128;
+            runp[i] = cp0[i] ? cp0[i] + 3 : nullptr;
+          }
         } break;
       }
     }
 
-    int rc=runp[i][0];
-    if ((runp[i][1]+256)>>(8-bp)==cc) {
-      int b=((runp[i][1]>>(7-bp))&1)*2-1;
-      int c=ilog(rc+1)<<(2+(~rc&1));
-      m.add(b*c);
+    int rc = (runp[i] && runp[i][0] > 0) ? runp[i][0] : 0;
+    if (runp[i] && (runp[i][1] + 256) >> (8 - bp) == cc) {
+      int b = ((runp[i][1] >> (7 - bp)) & 1) * 2 - 1;
+      int c = ilog(rc + 1) << (2 + (~rc & 1));
+      m.add(b * c);
     }
     else
       m.add(0);
 
-    const int s = cp[i]!=nullptr ?  *cp[i] : 0;
-    int p1=sm[i].p(s);
-    const int st=(stretch(p1)+(1<<1))>>2;
+    const int s = cp[i] ? *cp[i] : 0;
+    int p1 = sm[i].p(s);
+    const int st = (stretch(p1) + (1 << 1)) >> 2;
     m.add(st);
-    m.add((p1-2047+(1<<2))>>3);
-    const int n0=-!nex(s,2);
-    const int n1=-!nex(s,3);
-    m.add(st*abs(n1-n0));
-    const int p0=4095-p1;
-    m.add(((p1&n0)-(p0&n1)+(1<<3))>>4);
-    result+=s>0;
+    m.add((p1 - 2047 + (1 << 2)) >> 3);
+    const int n0 = -!nex(s, 2);
+    const int n1 = -!nex(s, 3);
+    m.add(st * abs(n1 - n0));
+    const int p0 = 4095 - p1;
+    m.add(((p1 & n0) - (p0 & n1) + (1 << 3)) >> 4);
+    result += s > 0;
   }
-  if (bp==7) cn=0;
+  if (bp == 7) cn = 0;
   return result;
 }
 
@@ -1512,21 +1534,25 @@ private:
 public:
   IndirectContext(const int BitsPerContext, const int InputBits = 8) :
     data(1ull<<BitsPerContext),
-    ctx(&data[0]),
     ctxMask((1ul<<BitsPerContext)-1),
     inputMask((1ul<<InputBits)-1),
     inputBits(InputBits)
   {
+    ctx = data.size() > 0 ? &data[0] : nullptr;
   }
   void operator+=(const U32 i) {
-    (*ctx)<<=inputBits;
-    (*ctx)|=i&inputMask;
+    if (ctx) {
+      (*ctx)<<=inputBits;
+      (*ctx)|=i&inputMask;
+    }
   }
   void operator=(const U32 i) {
-    ctx = &data[i&ctxMask];
+    U32 idx = i & ctxMask;
+    ctx = idx < data.size() ? &data[idx] : nullptr;
   }
   T& operator()(void) {
-    return *ctx;
+    static T dummy = 0;
+    return ctx ? *ctx : dummy;
   }
 };
 

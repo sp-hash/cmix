@@ -90,9 +90,36 @@ void ReadHeader(std::ifstream* is, unsigned long long* length,
 
 void ExtractVocab(unsigned long long input_bytes, std::ifstream* is,
     std::vector<bool>* vocab) {
-  for (unsigned long long pos = 0; pos < input_bytes; ++pos) {
-    unsigned char c = is->get();
-    (*vocab)[c] = true;
+  const int BUF_SIZE = 1 << 20; // 1MB buffer
+  std::vector<char> buffer(BUF_SIZE);
+  unsigned long long remaining = input_bytes;
+
+  bool local_vocab[256];
+  int count = 0;
+  for (int i = 0; i < 256; ++i) {
+    local_vocab[i] = (*vocab)[i];
+    if (local_vocab[i]) count++;
+  }
+
+  while (remaining > 0 && count < 256) {
+    size_t to_read = (remaining > BUF_SIZE) ? BUF_SIZE : (size_t)remaining;
+    is->read(&buffer[0], to_read);
+    size_t bytes_read = is->gcount();
+    if (bytes_read == 0) break;
+    remaining -= bytes_read;
+
+    for (size_t i = 0; i < bytes_read; ++i) {
+      unsigned char c = (unsigned char)buffer[i];
+      if (!local_vocab[c]) {
+        local_vocab[c] = true;
+        count++;
+        if (count == 256) break;
+      }
+    }
+  }
+
+  for (int i = 0; i < 256; ++i) {
+    (*vocab)[i] = local_vocab[i];
   }
 }
 
@@ -107,19 +134,33 @@ void Compress(unsigned long long input_bytes, std::ifstream* is,
   auto start_time = std::chrono::steady_clock::now();
   auto last_update = start_time;
   ClearOutput();
-  for (unsigned long long pos = 0; pos < input_bytes; ++pos) {
-    char c = is->get();
-    for (int j = 7; j >= 0; --j) {
-      e.Encode((c>>j)&1);
-    }
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
-      double frac = 100.0 * pos / input_bytes;
-      long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
-      long long remaining = (pos > 0) ? (elapsed * (input_bytes - pos) / pos) : 0;
-      fprintf(stderr, "\rprogress: %.2f%%, ETA: %02lld:%02lld:%02lld", frac, remaining / 3600, (remaining % 3600) / 60, remaining % 60);
-      fflush(stderr);
-      last_update = now;
+
+  const int BUF_SIZE = 1 << 16;
+  std::vector<char> buffer(BUF_SIZE);
+  unsigned long long pos = 0;
+
+  while (pos < input_bytes) {
+    size_t to_read = (input_bytes - pos > BUF_SIZE) ? BUF_SIZE : (size_t)(input_bytes - pos);
+    is->read(&buffer[0], to_read);
+    size_t bytes_read = is->gcount();
+    if (bytes_read == 0) break;
+
+    for (size_t i = 0; i < bytes_read; ++i) {
+      unsigned char c = (unsigned char)buffer[i];
+      for (int j = 7; j >= 0; --j) {
+        e.Encode((c >> j) & 1);
+      }
+      pos++;
+
+      auto now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
+        double frac = 100.0 * pos / input_bytes;
+        long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+        long long remaining = (pos > 0) ? (elapsed * (input_bytes - pos) / pos) : 0;
+        fprintf(stderr, "\rprogress: %.2f%%, ETA: %02lld:%02lld:%02lld", frac, remaining / 3600, (remaining % 3600) / 60, remaining % 60);
+        fflush(stderr);
+        last_update = now;
+      }
     }
   }
   e.Flush();
@@ -132,12 +173,23 @@ void Decompress(unsigned long long output_length, std::ifstream* is,
   auto start_time = std::chrono::steady_clock::now();
   auto last_update = start_time;
   ClearOutput();
+
+  const int BUF_SIZE = 1 << 16;
+  std::vector<char> buffer(BUF_SIZE);
+  int buffered = 0;
+
   for(unsigned long long pos = 0; pos < output_length; ++pos) {
     int byte = 1;
     while (byte < 256) {
       byte += byte + d.Decode();
     }
-    os->put(byte);
+
+    buffer[buffered++] = (unsigned char)byte;
+    if (buffered == BUF_SIZE) {
+      os->write(&buffer[0], BUF_SIZE);
+      buffered = 0;
+    }
+
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
       double frac = 100.0 * pos / output_length;
@@ -147,6 +199,9 @@ void Decompress(unsigned long long output_length, std::ifstream* is,
       fflush(stderr);
       last_update = now;
     }
+  }
+  if (buffered > 0) {
+    os->write(&buffer[0], buffered);
   }
 }
 
