@@ -21,7 +21,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-Predictor::Predictor(const std::vector<bool>& vocab) : manager_(),
+#include <intrin.h>
+
+Predictor::Predictor(const std::vector<bool>& vocab, unsigned long long file_size) : manager_(file_size),
     sigmoid_(100001), vocab_(vocab) {
   srand(0xDEADBEEF);
 
@@ -31,7 +33,7 @@ Predictor::Predictor(const std::vector<bool>& vocab) : manager_(),
   AddPPMD();
   AddWord();
   AddDirect();
-  AddMatch();
+  AddMatch(file_size);
   AddDoubleIndirect();
   AddMixers();
 }
@@ -147,10 +149,17 @@ void Predictor::AddDirect() {
   }
 }
 
-void Predictor::AddMatch() {
+void Predictor::AddMatch(unsigned long long file_size) {
   float delta = 0.5;
   int limit = 200;
-  unsigned long long max_size = 100000000;
+
+  unsigned long long n = file_size;
+  if (n == 0) n = 1; else {
+    n--; n |= n >> 1; n |= n >> 2; n |= n >> 4; 
+    n |= n >> 8; n |= n >> 16; n |= n >> 32; n++;
+  }
+  unsigned long long max_size = std::min(n, 100000000ULL);
+
   std::vector<std::vector<int>> model_params = {{0, 8}, {1, 8}, {2, 8}, {7, 4},
       {11, 3}, {13, 2}, {15, 2}, {17, 2}, {20, 1}, {25, 1}};
 

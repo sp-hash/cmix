@@ -10,7 +10,7 @@
 #include <memory>
 
 struct ContextManager {
-  ContextManager();
+  ContextManager(unsigned long long file_size = 100000000);
   const Context& AddContext(std::unique_ptr<Context> context);
   const BitContext& AddBitContext(std::unique_ptr<BitContext> bit_context);
   void UpdateContexts(int bit);

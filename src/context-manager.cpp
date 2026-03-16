@@ -1,7 +1,24 @@
 #include "context-manager.h"
+#include <algorithm>
 
-ContextManager::ContextManager() : history_(100000000, 0),
-    shared_map_(256*8000000, 0), words_(8, 0), recent_bytes_(8, 0) {}
+namespace {
+  unsigned long long next_pow2(unsigned long long n) {
+    if (n == 0) return 1;
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    return n + 1;
+  }
+}
+
+ContextManager::ContextManager(unsigned long long file_size) : 
+    history_(std::min(next_pow2(file_size), 100000000ULL), 0),
+    shared_map_(std::min(next_pow2(file_size * 256), 256ULL * 8000000), 0), 
+    words_(8, 0), recent_bytes_(8, 0) {}
 
 const Context& ContextManager::AddContext(std::unique_ptr<Context> context) {
   for (const auto& old : contexts_) {

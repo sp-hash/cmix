@@ -16,7 +16,7 @@
 
 class Predictor {
  public:
-  Predictor(const std::vector<bool>& vocab);
+  Predictor(const std::vector<bool>& vocab, unsigned long long file_size = 100000000);
   float Predict();
   void Perceive(int bit);
   void Pretrain(int bit);
@@ -35,7 +35,7 @@ class Predictor {
   void AddBracket();
   void AddWord();
   void AddDirect();
-  void AddMatch();
+  void AddMatch(unsigned long long file_size);
   void AddDoubleIndirect();
   void AddMixers();
 

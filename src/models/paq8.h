@@ -7,6 +7,7 @@
 
 namespace paq8 {
   class Predictor;
+  void setMaxMem(unsigned long long m);
 }
 
 class PAQ8 : public Model {

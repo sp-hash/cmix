@@ -119,7 +119,7 @@ template<class T, int ALIGN> void Array<T, ALIGN>::create(U32 i) {
   const size_t sz=ALIGN+n*sizeof(T);
   ptr = (char*)calloc(sz, 1);
   if (!ptr) quit("Out of memory");
-  data = (ALIGN ? (T*)(ptr+ALIGN-(((long long)ptr)&(ALIGN-1))) : (T*)ptr);
+  data = (ALIGN ? (T*)(ptr+ALIGN) : (T*)ptr);
 }
 
 template<class T, int ALIGN> Array<T, ALIGN>::~Array() {
@@ -3880,7 +3880,9 @@ void wordModel(Mixer& m) {
     static U64 number0=0, number1=0;
     static U32 text0=0,data0=0,type0=0;
     static U32 lastLetter=0, firstLetter=0, lastUpper=0, lastDigit=0, wordGap=0;
-    static ContextMap cm(MEM()*16, 61);
+    static ContextMap *cm_ptr = nullptr;
+    if (!cm_ptr) cm_ptr = new ContextMap(MEM()*16, 61);
+    ContextMap &cm = *cm_ptr;
     static int nl1=-3, nl=-2;
     static U32 mask=0, mask2=0;
     static Array<int> wpos(0x10000);
@@ -4111,7 +4113,9 @@ void nestModel(Mixer& m)
 {
   static int ic=0, bc=0, pc=0, qc=0, lvc=0, ac=0, ec=0, uc=0, sense1=0, sense2=0, w=0;
   static unsigned int vc=0, wc=0;
-  static ContextMap cm(MEM()/2, 12);
+  static ContextMap *cm_ptr = nullptr;
+  if (!cm_ptr) cm_ptr = new ContextMap(MEM()/2, 12);
+  ContextMap &cm = *cm_ptr;
 
   if (bpos==0) {
     int c=c4&255, matched=1, vv;
@@ -4438,7 +4442,15 @@ void recordModel(Mixer& m, Filetype filetype, ModelStats *Stats = nullptr) {
 void recordModel1(Mixer& m) {
   static int cpos1[256];
   static int wpos1[0x10000];
-  static ContextMap cm(32768, 2), cn(32768/2, 4+1), co(32768*4, 4),cp(32768*2, 3), cq(32768*2, 3);
+  static ContextMap *cm_ptr=nullptr, *cn_ptr=nullptr, *co_ptr=nullptr, *cp_ptr=nullptr, *cq_ptr=nullptr;
+  if (!cm_ptr) {
+    cm_ptr = new ContextMap(32768, 2);
+    cn_ptr = new ContextMap(32768/2, 4+1);
+    co_ptr = new ContextMap(32768*4, 4);
+    cp_ptr = new ContextMap(32768*2, 3);
+    cq_ptr = new ContextMap(32768*2, 3);
+  }
+  ContextMap &cm=*cm_ptr, &cn=*cn_ptr, &co=*co_ptr, &cp=*cp_ptr, &cq=*cq_ptr;
 
   if (!bpos) {
     int w=c4&0xffff, c=w&255, d=w&0xf0ff,e=c4&0xffffff;
@@ -4505,7 +4517,9 @@ void linearPredictionModel(Mixer& m) {
 }
 
 void sparseModel(Mixer& m, int seenbefore, int howmany) {
-  static ContextMap cm(MEM()*2, 40+2);
+  static ContextMap *cm_ptr = nullptr;
+  if (!cm_ptr) cm_ptr = new ContextMap(MEM()*2, 40+2);
+  ContextMap &cm = *cm_ptr;
   if (bpos==0) {
     U64 i=0;
     cm.set(hash(++i,seenbefore));
@@ -4540,9 +4554,20 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
 
 U32 x4=0;
 void sparseModel1(Mixer& m, int seenbefore, int howmany) {
-   static ContextMap cm(MEM()*4, 31);
-    static SmallStationaryContextMap scm1(7,8), scm2(8,8), scm3(4,8),
-     scm4(6,8), scm5(4,8),scm6(4,8), scma(7,8);
+    static ContextMap *cm_ptr = nullptr;
+    static SmallStationaryContextMap *scm1_ptr=nullptr, *scm2_ptr=nullptr, *scm3_ptr=nullptr, *scm4_ptr=nullptr, *scm5_ptr=nullptr, *scm6_ptr=nullptr, *scma_ptr=nullptr;
+    if (!cm_ptr) {
+      cm_ptr = new ContextMap(MEM()*4, 31);
+      scm1_ptr = new SmallStationaryContextMap(7,8);
+      scm2_ptr = new SmallStationaryContextMap(8,8);
+      scm3_ptr = new SmallStationaryContextMap(4,8);
+      scm4_ptr = new SmallStationaryContextMap(6,8);
+      scm5_ptr = new SmallStationaryContextMap(4,8);
+      scm6_ptr = new SmallStationaryContextMap(4,8);
+      scma_ptr = new SmallStationaryContextMap(7,8);
+    }
+    ContextMap &cm = *cm_ptr;
+    SmallStationaryContextMap &scm1=*scm1_ptr, &scm2=*scm2_ptr, &scm3=*scm3_ptr, &scm4=*scm4_ptr, &scm5=*scm5_ptr, &scm6=*scm6_ptr, &scma=*scma_ptr;
   if (bpos==0) {
     scm5.set(seenbefore);
     scm6.set(howmany);
@@ -4599,7 +4624,9 @@ void sparseModel1(Mixer& m, int seenbefore, int howmany) {
 }
 
 void distanceModel(Mixer& m) {
-  static ContextMap cm(MEM(), 3);
+  static ContextMap *cm_ptr = nullptr;
+  if (!cm_ptr) cm_ptr = new ContextMap(MEM(), 3);
+  ContextMap &cm = *cm_ptr;
   if( bpos == 0 ){
     static int pos00=0,pos20=0,posnl=0;
     int c=c4&0xff;
@@ -4676,7 +4703,9 @@ void im1bitModel(Mixer& m, int w) {
 
 // Model for 4-bit image data
 void im4bitModel(Mixer& m, int w) {
-  static HashTable<16> t(MEM()/2);
+  static HashTable<16> *t_ptr = nullptr;
+  if (!t_ptr) t_ptr = new HashTable<16>(MEM()/2);
+  HashTable<16> &t = *t_ptr;
   const int S=14; // number of contexts
   static U8* cp[S];
   static StateMap sm[S];
@@ -4749,7 +4778,9 @@ void im8bitModel(Mixer& m, int w, ModelStats *Stats = nullptr, int gray = 0) {
   static const int nMaps1 = 55;
   static const int nMaps = nMaps0 + nMaps1 + nOLS;
   static const int nPltMaps = 4;
-  static ContextMap cm(MEM()*4, 48 + nPltMaps);
+  static ContextMap *cm_ptr = nullptr;
+  if (!cm_ptr) cm_ptr = new ContextMap(MEM()*4, 48 + nPltMaps);
+  ContextMap &cm = *cm_ptr;
   static StationaryMap Map[nMaps] = {{ 0,8}, {15,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
                                      {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
                                      {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
@@ -5007,7 +5038,9 @@ void im24bitModel(Mixer& m, int w, ModelStats *Stats = nullptr, int alpha=0) {
   static const int nOLS = 6;
   static const int nMaps = nMaps0+nMaps1+nOLS;
   static const int nSCMaps = 59;
-  static ContextMap cm(MEM()*4, 47);
+  static ContextMap *cm_ptr = nullptr;
+  if (!cm_ptr) cm_ptr = new ContextMap(MEM()*4, 47);
+  ContextMap &cm = *cm_ptr;
   static SmallStationaryContextMap SCMap[nSCMaps] = { {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
                                                       {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
                                                       {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1}, {11,1},
@@ -8383,4 +8416,14 @@ unsigned int PAQ8::NumOutputs() {
 void PAQ8::Perceive(int bit) {
   paq8::y = bit;
   predictor_->update();
+}
+int level=DEFAULT_OPTION;
+unsigned long long max_mem = 0;
+void setMaxMem(unsigned long long m) {
+  max_mem = m;
+}
+unsigned long long MEM() {
+  unsigned long long m = 0x10000UL<<level;
+  if (max_mem > 0 && m > max_mem) return max_mem;
+  return m;
 }
