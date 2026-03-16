@@ -189,8 +189,42 @@ public:
 };
 
 int level=DEFAULT_OPTION;
+unsigned long long max_mem = 0;
+unsigned long long file_size = 0;
+
+void setMaxMem(unsigned long long m) {
+  max_mem = m;
+}
+
+void setFileSize(unsigned long long f) {
+  file_size = f;
+}
+
 unsigned long long MEM() {
-  return 0x10000UL<<level;
+  unsigned long long m = 0x10000UL<<level;
+  if (max_mem > 0 && m > max_mem) return max_mem;
+  return m;
+}
+
+// Adapted memory based on file size to save physical space on small files
+unsigned long long MEM_ADAPTED(unsigned long long multiplier) {
+  unsigned long long base = MEM() * multiplier;
+  if (paq8::file_size > 0) {
+    // 256x file size is usually enough for all context orders plus collision safety
+    unsigned long long safe_size = paq8::file_size * 256;
+    if (base > safe_size && safe_size > 0) {
+      // Ensure we don't go below a reasonable minimum for the specific model
+      if (safe_size < multiplier * 0x100000) safe_size = multiplier * 0x100000;
+
+      // Ensure power of 2 for hash tables using masks
+      unsigned long long pot = 1;
+      while (pot < safe_size) pot <<= 1;
+      safe_size = pot;
+
+      if (base > safe_size) return safe_size;
+    }
+  }
+  return base;
 }
 
 int y=0;
@@ -8135,12 +8169,12 @@ void XMLModel(Mixer& m, ModelStats *Stats = nullptr){
 U32 last_prediction = 2048;
 
 int contextModel2(ModelStats *Stats) {
-  static ContextMap2 cm(MEM()*16, 10);
-  static TextModel textModel(MEM()*16);
-  static MatchModel matchModel(MEM()*2);
-  static SparseMatchModel sparseMatchModel(MEM()/2);
+  static ContextMap2 cm(paq8::MEM_ADAPTED(16), 10);
+  static TextModel textModel(paq8::MEM_ADAPTED(16));
+  static MatchModel matchModel(paq8::MEM_ADAPTED(2));
+  static SparseMatchModel sparseMatchModel(paq8::MEM_ADAPTED(1)/2);
   static dmcForest dmcforest;
-  static RunContextMap rcm7(MEM()), rcm9(MEM()), rcm10(MEM());
+  static RunContextMap rcm7(paq8::MEM()), rcm9(paq8::MEM()), rcm10(paq8::MEM());
   static StateMap32 StateMaps[2]={{256},{256*256}};
   static Mixer m(NUM_INPUTS, 77472, NUM_SETS, 32);
   static U32 cxt[16];
@@ -8401,7 +8435,12 @@ void Predictor::update() {
 
 PAQ8::PAQ8(int memory) {
   paq8::level = memory;
-  paq8::buf.setsize(paq8::MEM()*8);
+  unsigned long long buf_size = paq8::MEM()*8;
+  if (paq8::file_size > 0 && buf_size > paq8::file_size * 2) {
+    buf_size = 1;
+    while (buf_size < paq8::file_size) buf_size <<= 1;
+  }
+  paq8::buf.setsize(buf_size);
   predictor_.reset(new paq8::Predictor());
 }
 
@@ -8416,14 +8455,4 @@ unsigned int PAQ8::NumOutputs() {
 void PAQ8::Perceive(int bit) {
   paq8::y = bit;
   predictor_->update();
-}
-int level=DEFAULT_OPTION;
-unsigned long long max_mem = 0;
-void setMaxMem(unsigned long long m) {
-  max_mem = m;
-}
-unsigned long long MEM() {
-  unsigned long long m = 0x10000UL<<level;
-  if (max_mem > 0 && m > max_mem) return max_mem;
-  return m;
 }

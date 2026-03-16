@@ -27,6 +27,7 @@ Predictor::Predictor(const std::vector<bool>& vocab, unsigned long long file_siz
     sigmoid_(100001), vocab_(vocab) {
   srand(0xDEADBEEF);
 
+  paq8::setFileSize(file_size);
   AddBracket();
   AddFXCM();
   AddPAQ8();

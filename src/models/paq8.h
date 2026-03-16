@@ -4,10 +4,12 @@
 #include "model.h"
 #include <vector>
 #include <memory>
+#include <valarray>
 
 namespace paq8 {
   class Predictor;
   void setMaxMem(unsigned long long m);
+  void setFileSize(unsigned long long f);
 }
 
 class PAQ8 : public Model {

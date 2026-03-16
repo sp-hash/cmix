@@ -104,7 +104,8 @@ void ClearOutput() {
 void Compress(unsigned long long input_bytes, std::ifstream* is,
     std::ofstream* os, unsigned long long* output_bytes, Predictor* p) {
   Encoder e(os, p);
-  auto last_update = std::chrono::steady_clock::now();
+  auto start_time = std::chrono::steady_clock::now();
+  auto last_update = start_time;
   ClearOutput();
   for (unsigned long long pos = 0; pos < input_bytes; ++pos) {
     char c = is->get();
@@ -114,7 +115,9 @@ void Compress(unsigned long long input_bytes, std::ifstream* is,
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
       double frac = 100.0 * pos / input_bytes;
-      fprintf(stderr, "\rprogress: %.2f%%", frac);
+      long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+      long long remaining = (pos > 0) ? (elapsed * (input_bytes - pos) / pos) : 0;
+      fprintf(stderr, "\rprogress: %.2f%%, ETA: %02lld:%02lld:%02lld", frac, remaining / 3600, (remaining % 3600) / 60, remaining % 60);
       fflush(stderr);
       last_update = now;
     }
@@ -126,7 +129,8 @@ void Compress(unsigned long long input_bytes, std::ifstream* is,
 void Decompress(unsigned long long output_length, std::ifstream* is,
                 std::ofstream* os, Predictor* p) {
   Decoder d(is, p);
-  auto last_update = std::chrono::steady_clock::now();
+  auto start_time = std::chrono::steady_clock::now();
+  auto last_update = start_time;
   ClearOutput();
   for(unsigned long long pos = 0; pos < output_length; ++pos) {
     int byte = 1;
@@ -137,7 +141,9 @@ void Decompress(unsigned long long output_length, std::ifstream* is,
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
       double frac = 100.0 * pos / output_length;
-      fprintf(stderr, "\rprogress: %.2f%%", frac);
+      long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+      long long remaining = (pos > 0) ? (elapsed * (output_length - pos) / pos) : 0;
+      fprintf(stderr, "\rprogress: %.2f%%, ETA: %02lld:%02lld:%02lld", frac, remaining / 3600, (remaining % 3600) / 60, remaining % 60);
       fflush(stderr);
       last_update = now;
     }
@@ -322,9 +328,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  printf("\r%lld bytes -> %lld bytes in %1.2f s.\n",
+  long long total_seconds = (long long)((double)clock() - start) / CLOCKS_PER_SEC;
+  printf("\r%lld bytes -> %lld bytes in %02lld:%02lld:%02lld.\n",
       input_bytes, output_bytes,
-      ((double)clock() - start) / CLOCKS_PER_SEC);
+      total_seconds / 3600, (total_seconds % 3600) / 60, total_seconds % 60);
 
   if (argv[1][1] == 'c') {
     double cross_entropy = output_bytes;
