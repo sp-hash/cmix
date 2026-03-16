@@ -28,13 +28,14 @@ Predictor::Predictor(const std::vector<bool>& vocab, unsigned long long file_siz
   srand(0xDEADBEEF);
 
   paq8::setFileSize(file_size);
-
   if (!paq8::getLightMode()) {
+    // Non-text (full) mode: enable binary and full models
     AddBracket();
     AddFXCM();
+    AddPAQ8();
   }
-
-  AddPAQ8();
+  // PPMD is the primary text model; always include it so -t (light mode)
+  // can run with only text models active.
   AddPPMD();
   AddWord();
 
@@ -100,8 +101,10 @@ void Predictor::AddPAQ8() {
 
 void Predictor::AddBracket() {
   AddModel(new Bracket(manager_.bit_context_, 200, 10, 100000, vocab_));
+  // Use smaller bracket context depth in light (text) mode to save memory.
+  int bracket_depth = paq8::getLightMode() ? 16 : 256;
   const Context& context = manager_.AddContext(std::unique_ptr<Context>(
-      new BracketContext(manager_.bit_context_, 256, 15)));
+      new BracketContext(manager_.bit_context_, bracket_depth, 15)));
   AddModel(new Direct(context.GetContext(), manager_.bit_context_, 30, 0,
       context.Size()));
   AddModel(new Indirect(manager_.nonstationary_, context.GetContext(),
@@ -109,7 +112,13 @@ void Predictor::AddBracket() {
 }
 
 void Predictor::AddPPMD() {
-  AddByteModel(new PPMD::PPMD(25, 14000, manager_.bit_context_, vocab_));
+  // Respect global memory limit (-m). PPMD expects memory in MB.
+  int memory_mb = 14000;
+  if (paq8::getMaxMem() > 0) {
+    // Convert bytes to megabytes (truncate). Allow zero -> 0 MB if user requested <1MB.
+    memory_mb = (int)(paq8::getMaxMem() >> 20);
+  }
+  AddByteModel(new PPMD::PPMD(25, memory_mb, manager_.bit_context_, vocab_));
 }
 
 void Predictor::AddWord() {

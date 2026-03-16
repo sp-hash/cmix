@@ -424,16 +424,30 @@ int main(int argc, char* argv[]) {
   if (argc < 4) return Help();
 
   unsigned long long memory_limit = 0;
-  int arg_idx = 1;
-  if (argv[arg_idx][0] == '-' && argv[arg_idx][1] == 'm') {
-    char* endptr;
-    memory_limit = strtoull(argv[arg_idx] + 2, &endptr, 10);
-    if (*endptr == 'G' || *endptr == 'g') memory_limit <<= 30;
-    else if (*endptr == 'M' || *endptr == 'm') memory_limit <<= 20;
-    else if (*endptr == 'K' || *endptr == 'k') memory_limit <<= 10;
-    arg_idx++;
-    if (memory_limit > 0) paq8::setMaxMem(memory_limit);
+  // Accept -m anywhere on the command line (not only as the first arg).
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i][0] == '-' && argv[i][1] == 'm') {
+      char* endptr;
+      unsigned long long m = strtoull(argv[i] + 2, &endptr, 10);
+      if (*endptr == 'G' || *endptr == 'g') m <<= 30;
+      else if (*endptr == 'M' || *endptr == 'm') m <<= 20;
+      else if (*endptr == 'K' || *endptr == 'k') m <<= 10;
+      if (m > 0) paq8::setMaxMem(m);
+      memory_limit = m;
+    }
   }
+
+  // Remove any -m arguments from argv so the rest of the parsing (which
+  // expects optional single-character flags before the main command) works
+  // regardless of -m position.
+  int write = 1;
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i][0] == '-' && argv[i][1] == 'm') continue;
+    argv[write++] = argv[i];
+  }
+  argc = write;
+
+  int arg_idx = 1;
 
   if (argc - arg_idx < 3 || argc - arg_idx > 4 || strlen(argv[arg_idx]) != 2 || argv[arg_idx][0] != '-' ||
       (argv[arg_idx][1] != 'c' && argv[arg_idx][1] != 'd' && argv[arg_idx][1] != 's' &&
