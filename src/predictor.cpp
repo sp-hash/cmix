@@ -28,14 +28,22 @@ Predictor::Predictor(const std::vector<bool>& vocab, unsigned long long file_siz
   srand(0xDEADBEEF);
 
   paq8::setFileSize(file_size);
-  AddBracket();
-  AddFXCM();
+
+  if (!paq8::getLightMode()) {
+    AddBracket();
+    AddFXCM();
+  }
+
   AddPAQ8();
   AddPPMD();
   AddWord();
-  AddDirect();
-  AddMatch(file_size);
-  AddDoubleIndirect();
+
+  if (!paq8::getLightMode()) {
+    AddDirect();
+    AddMatch(file_size);
+    AddDoubleIndirect();
+  }
+
   AddMixers();
 }
 
@@ -159,7 +167,11 @@ void Predictor::AddMatch(unsigned long long file_size) {
     n--; n |= n >> 1; n |= n >> 2; n |= n >> 4; 
     n |= n >> 8; n |= n >> 16; n |= n >> 32; n++;
   }
-  unsigned long long max_size = std::min(n, 100000000ULL);
+  unsigned long long max_history = 100000000ULL;
+  if (paq8::getMaxMem() > 0) {
+    max_history = std::min(max_history, paq8::getMaxMem() / 4);
+  }
+  unsigned long long max_size = std::min(n, max_history);
 
   std::vector<std::vector<int>> model_params = {{0, 8}, {1, 8}, {2, 8}, {7, 4},
       {11, 3}, {13, 2}, {15, 2}, {17, 2}, {20, 1}, {25, 1}};
@@ -196,8 +208,12 @@ void Predictor::AddMixers() {
   for (unsigned int i = 0; i < vocab_.size(); ++i) {
     if (vocab_[i]) ++vocab_size;
   }
+  unsigned int num_cells = 200;
+  if (paq8::getMaxMem() > 0 && paq8::getMaxMem() < 1024ULL * 1024 * 1024) {
+    num_cells = 64; // Reduce LSTM size for low memory environments
+  }
   AddByteMixer(new ByteMixer(byte_models_.size(), manager_.bit_context_, vocab_,
-      vocab_size, new Lstm(vocab_size, vocab_size, 200, 2, 100, 0.03, 10)));
+      vocab_size, new Lstm(vocab_size, vocab_size, num_cells, 2, 100, 0.03, 10)));
   AddAuxiliary();
 
   for (int i = 0; i < 3; ++i) {

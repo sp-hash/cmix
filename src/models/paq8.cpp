@@ -200,13 +200,26 @@ public:
 int level=DEFAULT_OPTION;
 unsigned long long max_mem = 0;
 unsigned long long file_size = 0;
+bool light_mode = false;
 
 void setMaxMem(unsigned long long m) {
   max_mem = m;
 }
 
+unsigned long long getMaxMem() {
+  return max_mem;
+}
+
 void setFileSize(unsigned long long f) {
   file_size = f;
+}
+
+void setLightMode(bool l) {
+  light_mode = l;
+}
+
+bool getLightMode() {
+  return light_mode;
 }
 
 unsigned long long MEM() {
@@ -222,9 +235,10 @@ unsigned long long MEM_ADAPTED(unsigned long long multiplier) {
     // 256x file size is usually enough for all context orders plus collision safety
     unsigned long long safe_size = paq8::file_size * 256;
 
-    // Cap at a reasonable limit (e.g., 128MB * multiplier) to avoid OOM on 1GB+ files
-    unsigned long long max_model_mem = multiplier * 0x08000000ULL; // 128MB * multiplier
-    if (safe_size > max_model_mem) safe_size = max_model_mem;
+    // Use user-defined limit if available, otherwise use 128MB * multiplier cap
+    unsigned long long limit = (max_mem > 0) ? max_mem : (multiplier * 0x08000000ULL);
+
+    if (safe_size > limit) safe_size = limit;
     if (base > safe_size && safe_size > 0) {
       // Ensure we don't go below a reasonable minimum for the specific model
       if (safe_size < multiplier * 0x100000) safe_size = multiplier * 0x100000;

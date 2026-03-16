@@ -1,4 +1,5 @@
 #include "context-manager.h"
+#include "models/paq8.h"
 #include <algorithm>
 
 namespace {
@@ -16,8 +17,8 @@ namespace {
 }
 
 ContextManager::ContextManager(unsigned long long file_size) : 
-    history_(std::min(next_pow2(file_size), 100000000ULL), 0),
-    shared_map_(std::min(next_pow2(file_size * 256), 256ULL * 8000000), 0), 
+    history_(std::min<unsigned long long>(next_pow2(file_size), (paq8::getMaxMem() > 0 ? std::min<unsigned long long>(100000000ULL, paq8::getMaxMem() / 4) : 100000000ULL)), 0),
+    shared_map_(std::min<unsigned long long>(next_pow2(file_size * 256), (paq8::getMaxMem() > 0 ? std::min<unsigned long long>(256ULL * 8000000, paq8::getMaxMem() / 2) : 256ULL * 8000000)), 0), 
     words_(8, 0), recent_bytes_(8, 0) {}
 
 const Context& ContextManager::AddContext(std::unique_ptr<Context> context) {

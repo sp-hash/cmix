@@ -12,6 +12,7 @@
 #include "coder/encoder.h"
 #include "coder/decoder.h"
 #include "predictor.h"
+#include "models/paq8.h"
 
 namespace {
   const int kMinVocabFileSize = 10000;
@@ -28,6 +29,7 @@ int Help() {
   printf("    no preprocessing:   cmix -n [input] [output]\n");
   printf("    only preprocessing: cmix -s [dictionary] [input] [output]\n");
   printf("                        cmix -s [input] [output]\n");
+  printf("    limit memory:       cmix -m[limit] ... (e.g. -m8G, -m512M)\n");
   printf("Decompress:\n");
   printf("    with dictionary:    cmix -d [dictionary] [input] [output]\n");
   printf("    without dictionary: cmix -d [input] [output]\n");
@@ -242,10 +244,11 @@ bool RunCompression(bool enable_preprocess, bool text_mode,
   *input_bytes = ftell(data_in);
   fseek(data_in, 0L, SEEK_SET);
 
+  bool detected_pure_text = false;
   if (enable_preprocess) {
     fprintf(stderr, "\rpreprocessing...");
     fflush(stderr);
-    preprocessor::Encode(data_in, temp_out, text_mode, *input_bytes, temp_path,
+    detected_pure_text = preprocessor::Encode(data_in, temp_out, text_mode, *input_bytes, temp_path,
         dictionary);
   } else {
     preprocessor::NoPreprocess(data_in, temp_out, *input_bytes);
@@ -272,6 +275,8 @@ bool RunCompression(bool enable_preprocess, bool text_mode,
   }
 
   WriteHeader(temp_bytes, vocab, dictionary != NULL, &data_out);
+  // Only use light mode if explicitly requested with -t
+  paq8::setLightMode(text_mode);
   Predictor p(vocab, temp_bytes);
   if (enable_preprocess) preprocessor::Pretrain(&p, dictionary);
   Compress(temp_bytes, &temp_in, &data_out, output_bytes, &p);
@@ -313,6 +318,7 @@ bool RunDecompression(const std::string& input_path,
     fclose(data_out);
     return true;
   }
+  paq8::setLightMode(false);
   Predictor p(vocab, *output_bytes);
   if (dictionary_used) preprocessor::Pretrain(&p, dictionary);
 
@@ -338,51 +344,88 @@ bool RunDecompression(const std::string& input_path,
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 4 || argc > 5 || strlen(argv[1]) != 2 || argv[1][0] != '-' ||
-      (argv[1][1] != 'c' && argv[1][1] != 'd' && argv[1][1] != 's' &&
-      argv[1][1] != 'n' && argv[1][1] != 't')) {
+  if (argc < 4) return Help();
+
+  unsigned long long memory_limit = 0;
+  int arg_idx = 1;
+  if (argv[arg_idx][0] == '-' && argv[arg_idx][1] == 'm') {
+    char* endptr;
+    memory_limit = strtoull(argv[arg_idx] + 2, &endptr, 10);
+    if (*endptr == 'G' || *endptr == 'g') memory_limit <<= 30;
+    else if (*endptr == 'M' || *endptr == 'm') memory_limit <<= 20;
+    else if (*endptr == 'K' || *endptr == 'k') memory_limit <<= 10;
+    arg_idx++;
+    if (memory_limit > 0) paq8::setMaxMem(memory_limit);
+  }
+
+  if (argc - arg_idx < 3 || argc - arg_idx > 4 || strlen(argv[arg_idx]) != 2 || argv[arg_idx][0] != '-' ||
+      (argv[arg_idx][1] != 'c' && argv[arg_idx][1] != 'd' && argv[arg_idx][1] != 's' &&
+      argv[arg_idx][1] != 'n' && argv[arg_idx][1] != 't')) {
     return Help();
   }
 
-  clock_t start = clock();
-
   bool enable_preprocess = true;
   bool text_mode = false;
-  if (argv[1][1] == 'n') enable_preprocess = false;
-  std::string input_path = argv[2];
-  std::string output_path = argv[3];
-  FILE* dictionary = NULL;
-  if (argc == 5) {
-    if (argv[1][1] == 'n') return Help();
-    if (argv[1][1] == 't') text_mode = true;
-    dictionary = fopen(argv[2], "rb");
-    if (!dictionary) return Help();
-    dictionary_path = argv[2];
-    input_path = argv[3];
-    output_path = argv[4];
-  } else {
-    if (argv[1][1] == 't') return Help();
+
+  // Handle optional flags before the main command (e.g., -t -c input output)
+  while (arg_idx < argc && argv[arg_idx][0] == '-' && strlen(argv[arg_idx]) == 2) {
+    if (argv[arg_idx][1] == 't') {
+      text_mode = true;
+      arg_idx++;
+    } else {
+      break;
+    }
   }
+
+  if (argc - arg_idx < 3) {
+    return Help();
+  }
+
+  if (argv[arg_idx][1] == 'n') enable_preprocess = false;
+
+  // Save the command (c, d, n, s, t)
+  char command = argv[arg_idx][1];
+  if (command == 't') text_mode = true;
+
+  std::string input_path;
+  std::string output_path;
+  FILE* dictionary = NULL;
+
+  if (argc - arg_idx == 4) {
+    if (command == 'n') return Help();
+    dictionary = fopen(argv[arg_idx + 1], "rb");
+    if (!dictionary) return Help();
+    dictionary_path = argv[arg_idx + 1];
+    input_path = argv[arg_idx + 2];
+    output_path = argv[arg_idx + 3];
+  } else {
+    input_path = argv[arg_idx + 1];
+    output_path = argv[arg_idx + 2];
+  }
+
+  clock_t start = clock();
 
   std::string temp_path = output_path + ".cmix.temp";
 
   unsigned long long input_bytes = 0, output_bytes = 0;
 
-  if (argv[1][1] == 's') {
+  if (command == 's') {
     if (!Store(input_path, temp_path, output_path, dictionary, &input_bytes,
         &output_bytes)) {
       return Help();
     }
-  } else if (argv[1][1] == 'c' || argv[1][1] == 'n' || argv[1][1] == 't') {
+  } else if (command == 'c' || command == 'n' || command == 't') {
     if (!RunCompression(enable_preprocess, text_mode, input_path, temp_path,
         output_path, dictionary, &input_bytes, &output_bytes)) {
       return Help();
     }
-  } else {
+  } else if (command == 'd') {
     if (!RunDecompression(input_path, temp_path, output_path, dictionary,
         &input_bytes, &output_bytes)) {
       return Help();
     }
+  } else {
+    return Help();
   }
 
   long long total_seconds = (long long)((double)clock() - start) / CLOCKS_PER_SEC;
@@ -390,7 +433,7 @@ int main(int argc, char* argv[]) {
       input_bytes, output_bytes,
       total_seconds / 3600, (total_seconds % 3600) / 60, total_seconds % 60);
 
-  if (argv[1][1] == 'c') {
+  if (command == 'c' || command == 'n' || command == 't') {
     double cross_entropy = output_bytes;
     cross_entropy /= input_bytes;
     cross_entropy *= 8;

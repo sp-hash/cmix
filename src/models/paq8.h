@@ -9,7 +9,10 @@
 namespace paq8 {
   class Predictor;
   void setMaxMem(unsigned long long m);
+  unsigned long long getMaxMem();
   void setFileSize(unsigned long long f);
+  void setLightMode(bool l);
+  bool getLightMode();
 }
 
 class PAQ8 : public Model {

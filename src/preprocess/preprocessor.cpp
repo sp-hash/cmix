@@ -624,7 +624,7 @@ void EncodeSegment(FILE* in, FILE* out, bool text_mode, int n,
 
 const unsigned long long kMaxSegment = 0x80000000 - 1;
 
-void Encode(FILE* in, FILE* out, bool text_mode, unsigned long long n,
+bool Encode(FILE* in, FILE* out, bool text_mode, unsigned long long n,
     const std::string& temp_path, FILE* dictionary) {
   std::vector<double> block_stats(5);
   unsigned long long size = n;
@@ -650,6 +650,7 @@ void Encode(FILE* in, FILE* out, bool text_mode, unsigned long long n,
   if (block_stats[3] > 0) printf(" AUDIO: %.1f%%", block_stats[3] * 100);
   if (block_stats[4] > 0) printf(" DEFAULT: %.1f%%", block_stats[4] * 100);
   printf("\n");
+  return block_stats[0] >= 1.0;
 }
 
 void NoPreprocess(FILE* in, FILE* out, unsigned long long n) {
