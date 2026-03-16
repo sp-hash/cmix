@@ -134,8 +134,9 @@ void ClearOutput() {
 void Compress(unsigned long long input_bytes, std::ifstream* is,
     std::ofstream* os, unsigned long long* output_bytes, Predictor* p) {
   Encoder e(os, p);
-  auto start_time = std::chrono::steady_clock::now();
-  auto last_update = start_time;
+  std::chrono::steady_clock::time_point start_time;
+  std::chrono::steady_clock::time_point last_update;
+  bool started = false;
   ClearOutput();
 
   const int BUF_SIZE = 1 << 16;
@@ -156,7 +157,13 @@ void Compress(unsigned long long input_bytes, std::ifstream* is,
       pos++;
 
       auto now = std::chrono::steady_clock::now();
-      if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
+      if (!started) {
+        // mark processing start on first processed byte
+        start_time = now;
+        last_update = now;
+        started = true;
+      }
+      if (started && std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
         double frac = 100.0 * pos / input_bytes;
         long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
         long long remaining = (pos > 0) ? (elapsed * (input_bytes - pos) / pos) : 0;
@@ -173,8 +180,11 @@ void Compress(unsigned long long input_bytes, std::ifstream* is,
 void Decompress(unsigned long long output_length, std::ifstream* is,
                 std::ofstream* os, Predictor* p) {
   Decoder d(is, p);
-  auto start_time = std::chrono::steady_clock::now();
-  auto last_update = start_time;
+  // Start timing when decompression output actually begins to be produced
+  // to avoid including earlier setup time in the ETA calculation.
+  std::chrono::steady_clock::time_point start_time;
+  std::chrono::steady_clock::time_point last_update;
+  bool started = false;
   ClearOutput();
 
   const int BUF_SIZE = 1 << 16;
@@ -194,7 +204,12 @@ void Decompress(unsigned long long output_length, std::ifstream* is,
     }
 
     auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
+    if (!started) {
+      start_time = now;
+      last_update = now;
+      started = true;
+    }
+    if (started && std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 5) {
       double frac = 100.0 * pos / output_length;
       long long elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
       long long remaining = (pos > 0) ? (elapsed * (output_length - pos) / pos) : 0;
