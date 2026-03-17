@@ -26,12 +26,9 @@ static inline float dot_product_f(const float* a, const float* b, int n) {
     __m256 vb = _mm256_loadu_ps(b + i);
     vsum2 = _mm256_add_ps(vsum2, _mm256_mul_ps(va, vb));
   }
-  __m128 vlow = _mm256_castps256_ps128(vsum2);
-  __m128 vhigh = _mm256_extractf128_ps(vsum2, 1);
-  vlow = _mm_add_ps(vlow, vhigh);
-  vlow = _mm_hadd_ps(vlow, vlow);
-  vlow = _mm_hadd_ps(vlow, vlow);
-  sum = _mm_cvtss_f32(vlow);
+  alignas(32) float tmp[8];
+  _mm256_storeu_ps(tmp, vsum2);
+  sum = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
 #endif
   for (; i < n; ++i) sum += a[i] * b[i];
   return sum;
