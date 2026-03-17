@@ -9,6 +9,10 @@ class Sigmoid {
   float Logit(float p) const;
   static float Logistic(float p);
   static float FastLogistic(float p);
+  static float FastTanh(float p);
+
+  static float* logistic_table_ptr;
+  static int table_size;
 
  private:
   float SlowLogit(float p);

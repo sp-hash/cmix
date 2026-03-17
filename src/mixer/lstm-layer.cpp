@@ -9,31 +9,50 @@
 
 namespace {
 
-// Small AVX2 helpers: dot product and saxpy (y += a*x)
+// Small AVX-512/AVX2 helpers: dot product and saxpy (y += a*x)
 static inline float dot_product_f(const float* a, const float* b, int n) {
   int i = 0;
-  __m256 vsum = _mm256_setzero_ps();
+  float sum = 0;
+#ifdef __AVX512F__
+  __m512 vsum = _mm512_setzero_ps();
+  for (; i + 15 < n; i += 16) {
+    __m512 va = _mm512_loadu_ps(a + i);
+    __m512 vb = _mm512_loadu_ps(b + i);
+    vsum = _mm512_add_ps(vsum, _mm512_mul_ps(va, vb));
+  }
+  sum = _mm512_reduce_add_ps(vsum);
+#elif defined(__AVX2__)
+  __m256 vsum2 = _mm256_setzero_ps();
   for (; i + 7 < n; i += 8) {
     __m256 va = _mm256_loadu_ps(a + i);
     __m256 vb = _mm256_loadu_ps(b + i);
-    vsum = _mm256_add_ps(vsum, _mm256_mul_ps(va, vb));
+    vsum2 = _mm256_add_ps(vsum2, _mm256_mul_ps(va, vb));
   }
   alignas(32) float tmp[8];
-  _mm256_storeu_ps(tmp, vsum);
-  float sum = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+  _mm256_storeu_ps(tmp, vsum2);
+  sum = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+#endif
   for (; i < n; ++i) sum += a[i] * b[i];
   return sum;
 }
 
 static inline void saxpy_f(float* y, const float* x, int n, float a) {
   int i = 0;
-  __m256 va = _mm256_set1_ps(a);
+#ifdef __AVX512F__
+  __m512 va = _mm512_set1_ps(a);
+  for (; i + 15 < n; i += 16) {
+    __m512 vx = _mm512_loadu_ps(x + i);
+    __m512 vy = _mm512_loadu_ps(y + i);
+    _mm512_storeu_ps(y + i, _mm512_add_ps(vy, _mm512_mul_ps(va, vx)));
+  }
+#elif defined(__AVX2__)
+  __m256 va2 = _mm256_set1_ps(a);
   for (; i + 7 < n; i += 8) {
     __m256 vx = _mm256_loadu_ps(x + i);
     __m256 vy = _mm256_loadu_ps(y + i);
-    vy = _mm256_add_ps(vy, _mm256_mul_ps(va, vx));
-    _mm256_storeu_ps(y + i, vy);
+    _mm256_storeu_ps(y + i, _mm256_add_ps(vy, _mm256_mul_ps(va2, vx)));
   }
+#endif
   for (; i < n; ++i) y[i] += a * x[i];
 }
 
@@ -61,7 +80,46 @@ void Adam(std::valarray<float>* g, std::valarray<float>* m,
   float* w_ptr = &(*w)[0];
   int n = g->size();
 
-  for (int i = 0; i < n; ++i) {
+  int i = 0;
+#ifdef __AVX512F__
+  __m512 v_beta1 = _mm512_set1_ps(beta1);
+  __m512 v_1_beta1 = _mm512_set1_ps(1.0f - beta1);
+  __m512 v_beta2 = _mm512_set1_ps(beta2);
+  __m512 v_1_beta2 = _mm512_set1_ps(1.0f - beta2);
+  __m512 v_alpha_b1t = _mm512_set1_ps(alpha / b1t);
+  __m512 v_b2t = _mm512_set1_ps(b2t);
+  __m512 v_eps = _mm512_set1_ps(eps);
+
+  for (; i + 15 < n; i += 16) {
+    __m512 gi = _mm512_loadu_ps(g_ptr + i);
+    __m512 mi = _mm512_add_ps(_mm512_mul_ps(_mm512_loadu_ps(m_ptr + i), v_beta1), _mm512_mul_ps(v_1_beta1, gi));
+    __m512 vi = _mm512_add_ps(_mm512_mul_ps(_mm512_loadu_ps(v_ptr + i), v_beta2), _mm512_mul_ps(v_1_beta2, _mm512_mul_ps(gi, gi)));
+    _mm512_storeu_ps(m_ptr + i, mi);
+    _mm512_storeu_ps(v_ptr + i, vi);
+    __m512 term = _mm512_div_ps(_mm512_mul_ps(v_alpha_b1t, mi), _mm512_add_ps(_mm512_sqrt_ps(_mm512_div_ps(vi, v_b2t)), v_eps));
+    _mm512_storeu_ps(w_ptr + i, _mm512_sub_ps(_mm512_loadu_ps(w_ptr + i), term));
+  }
+#elif defined(__AVX2__)
+  __m256 v_beta1 = _mm256_set1_ps(beta1);
+  __m256 v_1_beta1 = _mm256_set1_ps(1.0f - beta1);
+  __m256 v_beta2 = _mm256_set1_ps(beta2);
+  __m256 v_1_beta2 = _mm256_set1_ps(1.0f - beta2);
+  __m256 v_alpha_b1t = _mm256_set1_ps(alpha / b1t);
+  __m256 v_b2t = _mm256_set1_ps(b2t);
+  __m256 v_eps = _mm256_set1_ps(eps);
+
+  for (; i + 7 < n; i += 8) {
+    __m256 gi = _mm256_loadu_ps(g_ptr + i);
+    __m256 mi = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(m_ptr + i), v_beta1), _mm256_mul_ps(v_1_beta1, gi));
+    __m256 vi = _mm256_add_ps(_mm256_mul_ps(_mm256_loadu_ps(v_ptr + i), v_beta2), _mm256_mul_ps(v_1_beta2, _mm256_mul_ps(gi, gi)));
+    _mm256_storeu_ps(m_ptr + i, mi);
+    _mm256_storeu_ps(v_ptr + i, vi);
+    __m256 term = _mm256_div_ps(_mm256_mul_ps(v_alpha_b1t, mi), _mm256_add_ps(_mm256_sqrt_ps(_mm256_div_ps(vi, v_b2t)), v_eps));
+    _mm256_storeu_ps(w_ptr + i, _mm256_sub_ps(_mm256_loadu_ps(w_ptr + i), term));
+  }
+#endif
+
+  for (; i < n; ++i) {
     float gi = g_ptr[i];
     float mi = m_ptr[i] * beta1 + (1.0f - beta1) * gi;
     float vi = v_ptr[i] * beta2 + (1.0f - beta2) * gi * gi;
@@ -114,10 +172,23 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
   float* ts_ptr = &tanh_state_[epoch_][0];
   float* h_ptr = &(*hidden)[0] + hidden_start;
 
+  const float scale = Sigmoid::table_size / 20.0f;
+  const int half = Sigmoid::table_size / 2;
+  const float* table = Sigmoid::logistic_table_ptr;
+
   for (unsigned int i = 0; i < num_cells_; ++i) {
-    float fg = Sigmoid::Logistic(fgs_ptr[i]);
-    float in_node = tanh(ins_ptr[i]);
-    float og = Sigmoid::Logistic(ogs_ptr[i]);
+    // fg = Sigmoid::FastLogistic(fgs_ptr[i])
+    int idx_fg = static_cast<int>(fgs_ptr[i] * scale) + half;
+    float fg = (idx_fg >= Sigmoid::table_size) ? 1.0f : (idx_fg <= 0) ? 0.0f : table[idx_fg];
+
+    // in_node = Sigmoid::FastTanh(ins_ptr[i])
+    int idx_in = static_cast<int>((2.0f * ins_ptr[i]) * scale) + half;
+    float in_node = 2.0f * ((idx_in >= Sigmoid::table_size) ? 1.0f : (idx_in <= 0) ? 0.0f : table[idx_in]) - 1.0f;
+
+    // og = Sigmoid::FastLogistic(ogs_ptr[i])
+    int idx_og = static_cast<int>(ogs_ptr[i] * scale) + half;
+    float og = (idx_og >= Sigmoid::table_size) ? 1.0f : (idx_og <= 0) ? 0.0f : table[idx_og];
+
     fgs_ptr[i] = fg;
     ins_ptr[i] = in_node;
     ogs_ptr[i] = og;
@@ -127,7 +198,11 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
 
     float s = s_ptr[i] * fg + in_node * ig;
     s_ptr[i] = s;
-    float ts = tanh(s);
+
+    // ts = Sigmoid::FastTanh(s)
+    int idx_s = static_cast<int>((2.0f * s) * scale) + half;
+    float ts = 2.0f * ((idx_s >= Sigmoid::table_size) ? 1.0f : (idx_s <= 0) ? 0.0f : table[idx_s]) - 1.0f;
+
     ts_ptr[i] = ts;
     h_ptr[i] = og * ts;
   }
@@ -144,21 +219,45 @@ void LstmLayer::ForwardPass(NeuronLayer& neurons,
   for (unsigned int i = 0; i < num_cells_; ++i) {
     const float* w = &neurons.weights_[i][0];
     const float* w_off = w + output_size_;
-    // Use vectorized dot product for the input-weight multiply
     norm_ptr[i] = w[input_symbol] + dot_product_f(inp_ptr, w_off, num_inp);
   }
-  float sq_sum = 0;
-  for (unsigned int i = 0; i < num_cells_; ++i) {
-    sq_sum += norm_ptr[i] * norm_ptr[i];
+  float sq_sum = 1e-10f; // tiny epsilon
+  int i_cell = 0;
+#ifdef __AVX2__
+  __m256 v_sq_sum = _mm256_setzero_ps();
+  for (; i_cell + 7 < (int)num_cells_; i_cell += 8) {
+    __m256 v_norm = _mm256_loadu_ps(norm_ptr + i_cell);
+    v_sq_sum = _mm256_add_ps(v_sq_sum, _mm256_mul_ps(v_norm, v_norm));
   }
+  alignas(32) float tmp[8];
+  _mm256_storeu_ps(tmp, v_sq_sum);
+  sq_sum += (tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7]);
+#endif
+  for (; (unsigned int)i_cell < num_cells_; ++i_cell) {
+    sq_sum += norm_ptr[i_cell] * norm_ptr[i_cell];
+  }
+
   neurons.ivar_[epoch_] = 1.0f / sqrt((sq_sum / num_cells_) + 1e-5f);
   float ivar = neurons.ivar_[epoch_];
   const float* gamma_ptr = &neurons.gamma_[0];
   const float* beta_ptr = &neurons.beta_[0];
   float* state_ptr = &neurons.state_[epoch_][0];
-  for (unsigned int i = 0; i < num_cells_; ++i) {
-    norm_ptr[i] *= ivar;
-    state_ptr[i] = norm_ptr[i] * gamma_ptr[i] + beta_ptr[i];
+
+  i_cell = 0;
+#ifdef __AVX2__
+  __m256 v_ivar = _mm256_set1_ps(ivar);
+  for (; i_cell + 7 < (int)num_cells_; i_cell += 8) {
+    __m256 v_norm = _mm256_loadu_ps(norm_ptr + i_cell);
+    __m256 v_gamma = _mm256_loadu_ps(gamma_ptr + i_cell);
+    __m256 v_beta = _mm256_loadu_ps(beta_ptr + i_cell);
+    v_norm = _mm256_mul_ps(v_norm, v_ivar);
+    _mm256_storeu_ps(norm_ptr + i_cell, v_norm);
+    _mm256_storeu_ps(state_ptr + i_cell, _mm256_add_ps(_mm256_mul_ps(v_norm, v_gamma), v_beta));
+  }
+#endif
+  for (; (unsigned int)i_cell < num_cells_; ++i_cell) {
+    norm_ptr[i_cell] *= ivar;
+    state_ptr[i_cell] = norm_ptr[i_cell] * gamma_ptr[i_cell] + beta_ptr[i_cell];
   }
 }
 
@@ -191,19 +290,46 @@ void LstmLayer::BackwardPass(const std::valarray<float>&input, int epoch,
   float* ine_ptr = &input_node_.error_[0];
   float* fge_ptr = &forget_gate_.error_[0];
 
-  for (unsigned int i = 0; i < num_cells_; ++i) {
-    float ts = ts_ptr[i];
-    float se = se_ptr[i];
-    float ogs = ogs_ptr[i];
-    float ins = ins_ptr[i];
-    float igs = igs_ptr[i];
-    float ls = ls_ptr[i];
+  int i_cell = 0;
+#ifdef __AVX2__
+  __m256 v_one = _mm256_set1_ps(1.0f);
+  for (; i_cell + 7 < (int)num_cells_; i_cell += 8) {
+    __m256 ts = _mm256_loadu_ps(ts_ptr + i_cell);
+    __m256 se = _mm256_loadu_ps(se_ptr + i_cell);
+    __m256 ogs = _mm256_loadu_ps(ogs_ptr + i_cell);
+    __m256 ins = _mm256_loadu_ps(ins_ptr + i_cell);
+    __m256 igs = _mm256_loadu_ps(igs_ptr + i_cell);
+    __m256 ls = _mm256_loadu_ps(ls_ptr + i_cell);
+    __m256 fgs = _mm256_loadu_ps(fgs_ptr + i_cell);
 
-    oge_ptr[i] = ts * se * ogs * (1.0f - ogs);
-    float local_state_error = seer_ptr[i] + se * ogs * (1.0f - ts * ts);
-    seer_ptr[i] = local_state_error;
-    ine_ptr[i] = local_state_error * igs * (1.0f - ins * ins);
-    fge_ptr[i] = (ls - ins) * local_state_error * fgs_ptr[i] * igs;
+    // oge_ptr[i] = ts * se * ogs * (1.0f - ogs);
+    _mm256_storeu_ps(oge_ptr + i_cell, _mm256_mul_ps(_mm256_mul_ps(ts, se), _mm256_mul_ps(ogs, _mm256_sub_ps(v_one, ogs))));
+
+    // local_state_error = seer_ptr[i] + se * ogs * (1.0f - ts * ts);
+    __m256 lse = _mm256_add_ps(_mm256_loadu_ps(seer_ptr + i_cell), _mm256_mul_ps(_mm256_mul_ps(se, ogs), _mm256_sub_ps(v_one, _mm256_mul_ps(ts, ts))));
+    _mm256_storeu_ps(seer_ptr + i_cell, lse);
+
+    // ine_ptr[i] = local_state_error * igs * (1.0f - ins * ins);
+    _mm256_storeu_ps(ine_ptr + i_cell, _mm256_mul_ps(_mm256_mul_ps(lse, igs), _mm256_sub_ps(v_one, _mm256_mul_ps(ins, ins))));
+
+    // fge_ptr[i] = (ls - ins) * local_state_error * fgs * igs;
+    _mm256_storeu_ps(fge_ptr + i_cell, _mm256_mul_ps(_mm256_mul_ps(_mm256_sub_ps(ls, ins), lse), _mm256_mul_ps(fgs, igs)));
+  }
+#endif
+
+  for (; (unsigned int)i_cell < num_cells_; ++i_cell) {
+    float ts = ts_ptr[i_cell];
+    float se = se_ptr[i_cell];
+    float ogs = ogs_ptr[i_cell];
+    float ins = ins_ptr[i_cell];
+    float igs = igs_ptr[i_cell];
+    float ls = ls_ptr[i_cell];
+
+    oge_ptr[i_cell] = ts * se * ogs * (1.0f - ogs);
+    float local_state_error = seer_ptr[i_cell] + se * ogs * (1.0f - ts * ts);
+    seer_ptr[i_cell] = local_state_error;
+    ine_ptr[i_cell] = local_state_error * igs * (1.0f - ins * ins);
+    fge_ptr[i_cell] = (ls - ins) * local_state_error * fgs_ptr[i_cell] * igs;
   }
 
   *hidden_error = 0;
@@ -247,19 +373,20 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
   const float* norm_ptr = &neurons.norm_[epoch][0];
   const float* gamma_ptr = &neurons.gamma_[0];
   float dot_err_norm = 0;
+  float ivar = neurons.ivar_[epoch];
   for (unsigned int i = 0; i < num_cells_; ++i) {
     float err = err_ptr[i];
     float norm = norm_ptr[i];
     bu_ptr[i] += err;
     gu_ptr[i] += err * norm;
-    err *= gamma_ptr[i] * neurons.ivar_[epoch];
+    err *= gamma_ptr[i] * ivar;
     err_ptr[i] = err;
     dot_err_norm += err * norm;
   }
   dot_err_norm /= static_cast<float>(num_cells_);
-  for (unsigned int i = 0; i < num_cells_; ++i) {
-    err_ptr[i] -= dot_err_norm * norm_ptr[i];
-  }
+
+  // Vectorized: err_ptr[i] -= dot_err_norm * norm_ptr[i]
+  saxpy_f(err_ptr, norm_ptr, num_cells_, -dot_err_norm);
 
   if (layer > 0) {
     float* herr_ptr = &(*hidden_error)[0];

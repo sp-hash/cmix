@@ -2,8 +2,12 @@
 
 #include <math.h>
 
+// optimize: precompute scaling factors for FastLogistic
+
 const int Sigmoid::logistic_table_size_ = 1000001;
 std::vector<float> Sigmoid::logistic_table_;
+float* Sigmoid::logistic_table_ptr = nullptr;
+int Sigmoid::table_size = 0;
 
 Sigmoid::Sigmoid(int logit_size) : logit_size_(logit_size),
     logit_table_(logit_size, 0) {
@@ -16,6 +20,8 @@ Sigmoid::Sigmoid(int logit_size) : logit_size_(logit_size),
       float p = (i - (logistic_table_size_ / 2)) * 20.0f / logistic_table_size_;
       logistic_table_[i] = 1.0f / (1.0f + exp(-p));
     }
+    logistic_table_ptr = logistic_table_.data();
+    table_size = logistic_table_size_;
   }
 }
 
@@ -27,10 +33,16 @@ float Sigmoid::Logit(float p) const {
 }
 
 float Sigmoid::FastLogistic(float p) {
-  int index = static_cast<int>((p * (logistic_table_size_ / 20.0f)) + (logistic_table_size_ / 2));
-  if (index >= logistic_table_size_) return 1.0f;
+  static const float scale = 1000001.0f / 20.0f;
+  static const int half = 1000001 / 2;
+  int index = static_cast<int>(p * scale) + half;
+  if (index >= 1000001) return 1.0f;
   if (index <= 0) return 0.0f;
   return logistic_table_[index];
+}
+
+float Sigmoid::FastTanh(float p) {
+  return 2.0f * FastLogistic(2.0f * p) - 1.0f;
 }
 
 float Sigmoid::Logistic(float p) {
