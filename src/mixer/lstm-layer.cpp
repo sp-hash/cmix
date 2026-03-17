@@ -7,10 +7,19 @@
 #include <numeric>
 #include <immintrin.h>
 
+// Restrict macro for pointer aliasing hints to the compiler
+#if defined(__GNUC__) || defined(__clang__)
+#define RESTRICT __restrict__
+#elif defined(_MSC_VER)
+#define RESTRICT __restrict
+#else
+#define RESTRICT
+#endif
+
 namespace {
 
 // Small AVX-512/AVX2 helpers: dot product and saxpy (y += a*x)
-static inline float dot_product_f(const float* a, const float* b, int n) {
+static inline float dot_product_f(const float* RESTRICT a, const float* RESTRICT b, int n) {
   int i = 0;
   float sum = 0;
 #ifdef __AVX512F__
@@ -36,7 +45,7 @@ static inline float dot_product_f(const float* a, const float* b, int n) {
   return sum;
 }
 
-static inline void saxpy_f(float* y, const float* x, int n, float a) {
+static inline void saxpy_f(float* RESTRICT y, const float* RESTRICT x, int n, float a) {
   int i = 0;
 #ifdef __AVX512F__
   __m512 va = _mm512_set1_ps(a);
@@ -74,10 +83,10 @@ void Adam(std::valarray<float>* g, std::valarray<float>* m,
   }
 
 
-  float* g_ptr = &(*g)[0];
-  float* m_ptr = &(*m)[0];
-  float* v_ptr = &(*v)[0];
-  float* w_ptr = &(*w)[0];
+  float* RESTRICT g_ptr = &(*g)[0];
+  float* RESTRICT m_ptr = &(*m)[0];
+  float* RESTRICT v_ptr = &(*v)[0];
+  float* RESTRICT w_ptr = &(*w)[0];
   int n = g->size();
 
   int i = 0;
@@ -164,17 +173,17 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
   ForwardPass(input_node_, input, input_symbol);
   ForwardPass(output_gate_, input, input_symbol);
 
-  float* fgs_ptr = &forget_gate_.state_[epoch_][0];
-  float* ins_ptr = &input_node_.state_[epoch_][0];
-  float* ogs_ptr = &output_gate_.state_[epoch_][0];
-  float* igs_ptr = &input_gate_state_[epoch_][0];
-  float* s_ptr = &state_[0];
-  float* ts_ptr = &tanh_state_[epoch_][0];
-  float* h_ptr = &(*hidden)[0] + hidden_start;
+  float* RESTRICT fgs_ptr = &forget_gate_.state_[epoch_][0];
+  float* RESTRICT ins_ptr = &input_node_.state_[epoch_][0];
+  float* RESTRICT ogs_ptr = &output_gate_.state_[epoch_][0];
+  float* RESTRICT igs_ptr = &input_gate_state_[epoch_][0];
+  float* RESTRICT s_ptr = &state_[0];
+  float* RESTRICT ts_ptr = &tanh_state_[epoch_][0];
+  float* RESTRICT h_ptr = &(*hidden)[0] + hidden_start;
 
   const float scale = Sigmoid::table_size / 20.0f;
   const int half = Sigmoid::table_size / 2;
-  const float* table = Sigmoid::logistic_table_ptr;
+  const float* RESTRICT table = Sigmoid::logistic_table_ptr;
 
   for (unsigned int i = 0; i < num_cells_; ++i) {
     // fg = Sigmoid::FastLogistic(fgs_ptr[i])
@@ -214,11 +223,11 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
 void LstmLayer::ForwardPass(NeuronLayer& neurons,
     const std::valarray<float>& input, int input_symbol) {
   int num_inp = input.size();
-  const float* inp_ptr = &input[0];
-  float* norm_ptr = &neurons.norm_[epoch_][0];
+  const float* RESTRICT inp_ptr = &input[0];
+  float* RESTRICT norm_ptr = &neurons.norm_[epoch_][0];
   for (unsigned int i = 0; i < num_cells_; ++i) {
-    const float* w = &neurons.weights_[i][0];
-    const float* w_off = w + output_size_;
+    const float* RESTRICT w = &neurons.weights_[i][0];
+    const float* RESTRICT w_off = w + output_size_;
     norm_ptr[i] = w[input_symbol] + dot_product_f(inp_ptr, w_off, num_inp);
   }
   float sq_sum = 1e-10f; // tiny epsilon
@@ -239,9 +248,9 @@ void LstmLayer::ForwardPass(NeuronLayer& neurons,
 
   neurons.ivar_[epoch_] = 1.0f / sqrt((sq_sum / num_cells_) + 1e-5f);
   float ivar = neurons.ivar_[epoch_];
-  const float* gamma_ptr = &neurons.gamma_[0];
-  const float* beta_ptr = &neurons.beta_[0];
-  float* state_ptr = &neurons.state_[epoch_][0];
+  const float* RESTRICT gamma_ptr = &neurons.gamma_[0];
+  const float* RESTRICT beta_ptr = &neurons.beta_[0];
+  float* RESTRICT state_ptr = &neurons.state_[epoch_][0];
 
   i_cell = 0;
 #ifdef __AVX2__
@@ -367,13 +376,17 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
     }
   }
 
-  float* bu_ptr = &neurons.beta_u_[0];
-  float* gu_ptr = &neurons.gamma_u_[0];
-  float* err_ptr = &neurons.error_[0];
-  const float* norm_ptr = &neurons.norm_[epoch][0];
-  const float* gamma_ptr = &neurons.gamma_[0];
+  float* RESTRICT bu_ptr = &neurons.beta_u_[0];
+  float* RESTRICT gu_ptr = &neurons.gamma_u_[0];
+  float* RESTRICT err_ptr = &neurons.error_[0];
+  const float* RESTRICT norm_ptr = &neurons.norm_[epoch][0];
+  const float* RESTRICT gamma_ptr = &neurons.gamma_[0];
   float dot_err_norm = 0;
   float ivar = neurons.ivar_[epoch];
+  // Hint to the compiler that this loop can be vectorized and that the
+  // pointers do not alias each other. This enables auto-vectorization
+  // (SIMD) and can significantly speed up this critical loop.
+  #pragma omp simd reduction(+:dot_err_norm)
   for (unsigned int i = 0; i < num_cells_; ++i) {
     float err = err_ptr[i];
     float norm = norm_ptr[i];
@@ -403,11 +416,11 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
     }
   }
 
-  const float* inp_ptr = &input[0];
+  const float* RESTRICT inp_ptr = &input[0];
   int inp_size = input.size();
   for (unsigned int i = 0; i < num_cells_; ++i) {
     float err = err_ptr[i];
-    float* up_ptr = &neurons.update_[i][output_size_];
+    float* RESTRICT up_ptr = &neurons.update_[i][output_size_];
     // vectorized accumulation: up_ptr[j] += err * inp_ptr[j]
     saxpy_f(up_ptr, inp_ptr, inp_size, err);
     neurons.update_[i][input_symbol] += err;

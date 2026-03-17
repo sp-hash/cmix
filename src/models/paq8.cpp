@@ -36,7 +36,6 @@
 #include <ctype.h>
 #include <unordered_map>
 #include <memory>
-#define NDEBUG
 
 #ifdef UNIX
 #include <sys/types.h>
