@@ -33,12 +33,12 @@ float Sigmoid::Logit(float p) const {
 }
 
 float Sigmoid::FastLogistic(float p) {
-  static const float scale = 1000001.0f / 20.0f;
-  static const int half = 1000001 / 2;
-  int index = static_cast<int>(p * scale) + half;
-  if (index >= 1000001) return 1.0f;
+  const float scale = table_size / 20.0f;
+  const int half = table_size / 2;
+  int index = static_cast<int>(p * scale + (p >= 0 ? 0.5f : -0.5f)) + half;
+  if (index >= table_size) return 1.0f;
   if (index <= 0) return 0.0f;
-  return logistic_table_[index];
+  return logistic_table_ptr[index];
 }
 
 float Sigmoid::FastTanh(float p) {

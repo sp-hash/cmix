@@ -28,9 +28,12 @@ static inline float dot_product_f(const float* a, const float* b, int n) {
     __m256 vb = _mm256_loadu_ps(b + i);
     vsum2 = _mm256_add_ps(vsum2, _mm256_mul_ps(va, vb));
   }
-  alignas(32) float tmp[8];
-  _mm256_storeu_ps(tmp, vsum2);
-  sum = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+  __m128 vlow = _mm256_castps256_ps128(vsum2);
+  __m128 vhigh = _mm256_extractf128_ps(vsum2, 1);
+  vlow = _mm_add_ps(vlow, vhigh);
+  vlow = _mm_hadd_ps(vlow, vlow);
+  vlow = _mm_hadd_ps(vlow, vlow);
+  sum = _mm_cvtss_f32(vlow);
 #endif
   for (; i < n; ++i) sum += a[i] * b[i];
   return sum;
@@ -175,19 +178,65 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
   const float scale = Sigmoid::table_size / 20.0f;
   const int half = Sigmoid::table_size / 2;
   const float* table = Sigmoid::logistic_table_ptr;
+  const int table_size = Sigmoid::table_size;
 
-  for (unsigned int i = 0; i < num_cells_; ++i) {
+  unsigned int i = 0;
+#ifdef __AVX2__
+  __m256 v_scale = _mm256_set1_ps(scale);
+  __m256i v_half = _mm256_set1_epi32(half);
+  __m256i v_table_size = _mm256_set1_epi32(table_size);
+  __m256i v_zero = _mm256_setzero_si256();
+  __m256 v_zero_f = _mm256_setzero_ps();
+  __m256 v_one_f = _mm256_set1_ps(1.0f);
+  __m256 v_two_f = _mm256_set1_ps(2.0f);
+
+  for (; i + 7 < num_cells_; i += 8) {
+    __m256 fgs = _mm256_loadu_ps(fgs_ptr + i);
+    __m256 ins = _mm256_loadu_ps(ins_ptr + i);
+    __m256 ogs = _mm256_loadu_ps(ogs_ptr + i);
+    __m256 ss = _mm256_loadu_ps(s_ptr + i);
+
+    auto fast_logistic_v = [&](__m256 p) {
+      __m256i idx = _mm256_add_epi32(_mm256_cvtps_epi32(_mm256_mul_ps(p, v_scale)), v_half);
+      // clamp idx
+      __m256i clamped_idx = _mm256_max_epi32(v_zero, _mm256_min_epi32(idx, _mm256_sub_epi32(v_table_size, _mm256_set1_epi32(1))));
+      __m256 res = _mm256_i32gather_ps(table, clamped_idx, 4);
+      // handle out of bounds if necessary (though clamp handles it)
+      return res;
+    };
+
+    __m256 fg = fast_logistic_v(fgs);
+    __m256 in_node = _mm256_sub_ps(_mm256_mul_ps(v_two_f, fast_logistic_v(_mm256_mul_ps(v_two_f, ins))), v_one_f);
+    __m256 og = fast_logistic_v(ogs);
+
+    _mm256_storeu_ps(fgs_ptr + i, fg);
+    _mm256_storeu_ps(ins_ptr + i, in_node);
+    _mm256_storeu_ps(ogs_ptr + i, og);
+
+    __m256 ig = _mm256_sub_ps(v_one_f, fg);
+    _mm256_storeu_ps(igs_ptr + i, ig);
+
+    __m256 s = _mm256_add_ps(_mm256_mul_ps(ss, fg), _mm256_mul_ps(in_node, ig));
+    _mm256_storeu_ps(s_ptr + i, s);
+
+    __m256 ts = _mm256_sub_ps(_mm256_mul_ps(v_two_f, fast_logistic_v(_mm256_mul_ps(v_two_f, s))), v_one_f);
+    _mm256_storeu_ps(ts_ptr + i, ts);
+    _mm256_storeu_ps(h_ptr + i, _mm256_mul_ps(og, ts));
+  }
+#endif
+
+  for (; i < num_cells_; ++i) {
     // fg = Sigmoid::FastLogistic(fgs_ptr[i])
-    int idx_fg = static_cast<int>(fgs_ptr[i] * scale) + half;
-    float fg = (idx_fg >= Sigmoid::table_size) ? 1.0f : (idx_fg <= 0) ? 0.0f : table[idx_fg];
+    int idx_fg = static_cast<int>(fgs_ptr[i] * scale + 0.5f) + half;
+    float fg = (idx_fg >= table_size) ? 1.0f : (idx_fg <= 0) ? 0.0f : table[idx_fg];
 
     // in_node = Sigmoid::FastTanh(ins_ptr[i])
-    int idx_in = static_cast<int>((2.0f * ins_ptr[i]) * scale) + half;
-    float in_node = 2.0f * ((idx_in >= Sigmoid::table_size) ? 1.0f : (idx_in <= 0) ? 0.0f : table[idx_in]) - 1.0f;
+    int idx_in = static_cast<int>((2.0f * ins_ptr[i]) * scale + 0.5f) + half;
+    float in_node = 2.0f * ((idx_in >= table_size) ? 1.0f : (idx_in <= 0) ? 0.0f : table[idx_in]) - 1.0f;
 
     // og = Sigmoid::FastLogistic(ogs_ptr[i])
-    int idx_og = static_cast<int>(ogs_ptr[i] * scale) + half;
-    float og = (idx_og >= Sigmoid::table_size) ? 1.0f : (idx_og <= 0) ? 0.0f : table[idx_og];
+    int idx_og = static_cast<int>(ogs_ptr[i] * scale + 0.5f) + half;
+    float og = (idx_og >= table_size) ? 1.0f : (idx_og <= 0) ? 0.0f : table[idx_og];
 
     fgs_ptr[i] = fg;
     ins_ptr[i] = in_node;
@@ -200,8 +249,8 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
     s_ptr[i] = s;
 
     // ts = Sigmoid::FastTanh(s)
-    int idx_s = static_cast<int>((2.0f * s) * scale) + half;
-    float ts = 2.0f * ((idx_s >= Sigmoid::table_size) ? 1.0f : (idx_s <= 0) ? 0.0f : table[idx_s]) - 1.0f;
+    int idx_s = static_cast<int>((2.0f * s) * scale + 0.5f) + half;
+    float ts = 2.0f * ((idx_s >= table_size) ? 1.0f : (idx_s <= 0) ? 0.0f : table[idx_s]) - 1.0f;
 
     ts_ptr[i] = ts;
     h_ptr[i] = og * ts;
@@ -334,7 +383,13 @@ void LstmLayer::BackwardPass(const std::valarray<float>&input, int epoch,
 
   *hidden_error = 0;
   if (epoch > 0) {
-    for (unsigned int i = 0; i < num_cells_; ++i) seer_ptr[i] *= fgs_ptr[i];
+    unsigned int i_loop = 0;
+#ifdef __AVX2__
+    for (; i_loop + 7 < num_cells_; i_loop += 8) {
+      _mm256_storeu_ps(seer_ptr + i_loop, _mm256_mul_ps(_mm256_loadu_ps(seer_ptr + i_loop), _mm256_loadu_ps(fgs_ptr + i_loop)));
+    }
+#endif
+    for (; i_loop < num_cells_; ++i_loop) seer_ptr[i_loop] *= fgs_ptr[i_loop];
     stored_error_ = 0;
   } else {
     if (update_steps_ < update_limit_) {
@@ -374,7 +429,31 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
   const float* gamma_ptr = &neurons.gamma_[0];
   float dot_err_norm = 0;
   float ivar = neurons.ivar_[epoch];
-  for (unsigned int i = 0; i < num_cells_; ++i) {
+  unsigned int i = 0;
+#ifdef __AVX2__
+  __m256 v_dot_err_norm = _mm256_setzero_ps();
+  __m256 v_ivar = _mm256_set1_ps(ivar);
+  for (; i + 7 < num_cells_; i += 8) {
+    __m256 err = _mm256_loadu_ps(err_ptr + i);
+    __m256 norm = _mm256_loadu_ps(norm_ptr + i);
+    __m256 gamma = _mm256_loadu_ps(gamma_ptr + i);
+
+    _mm256_storeu_ps(bu_ptr + i, _mm256_add_ps(_mm256_loadu_ps(bu_ptr + i), err));
+    _mm256_storeu_ps(gu_ptr + i, _mm256_add_ps(_mm256_loadu_ps(gu_ptr + i), _mm256_mul_ps(err, norm)));
+
+    __m256 updated_err = _mm256_mul_ps(_mm256_mul_ps(err, gamma), v_ivar);
+    _mm256_storeu_ps(err_ptr + i, updated_err);
+    v_dot_err_norm = _mm256_add_ps(v_dot_err_norm, _mm256_mul_ps(updated_err, norm));
+  }
+  __m128 vlow = _mm256_castps256_ps128(v_dot_err_norm);
+  __m128 vhigh = _mm256_extractf128_ps(v_dot_err_norm, 1);
+  vlow = _mm_add_ps(vlow, vhigh);
+  vlow = _mm_hadd_ps(vlow, vlow);
+  vlow = _mm_hadd_ps(vlow, vlow);
+  dot_err_norm = _mm_cvtss_f32(vlow);
+#endif
+
+  for (; i < num_cells_; ++i) {
     float err = err_ptr[i];
     float norm = norm_ptr[i];
     bu_ptr[i] += err;
