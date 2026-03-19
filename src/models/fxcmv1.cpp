@@ -3,8 +3,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #ifdef _MSC_VER
-#pragma arch:avx2
-#define __AVX2__ 1
+#pragma arch:avx512F
+#define __AVX512__ 1
 #endif
 
 /*
