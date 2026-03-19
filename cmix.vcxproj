@@ -142,7 +142,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions512</EnableEnhancedInstructionSet>
       <EnableVectorLength>VectorLength512</EnableVectorLength>
-      <DebugInformationFormat>None</DebugInformationFormat>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalOptions>/openmp:experimental %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
