@@ -58,23 +58,43 @@ Lstm::Lstm(unsigned int input_size, unsigned int output_size, unsigned int
     num_cells, unsigned int num_layers, int horizon, float learning_rate,
     float gradient_clip) : input_history_(horizon),
     hidden_(num_cells * num_layers + 1), hidden_error_(num_cells),
-    layer_input_(std::valarray<std::valarray<float>>(std::valarray<float>
-    (input_size + 1 + num_cells * 2), num_layers), horizon),
-    output_layer_(std::valarray<std::valarray<float>>(std::valarray<float>
-    (num_cells * num_layers + 1), output_size), horizon),
-    output_(std::valarray<float>(1.0 / output_size, output_size), horizon),
     learning_rate_(learning_rate), num_cells_(num_cells), epoch_(0),
-    horizon_(horizon), input_size_(input_size), output_size_(output_size) {
+    horizon_(horizon), input_size_(input_size), output_size_(output_size),
+    num_layers_(num_layers), outputs_single_(std::valarray<float>(0.0f, output_size)) {
   hidden_[hidden_.size() - 1] = 1;
-  for (int epoch = 0; epoch < horizon; ++epoch) {
-    layer_input_[epoch][0].resize(1 + num_cells + input_size);
-    for (unsigned int i = 0; i < num_layers; ++i) {
-      layer_input_[epoch][i][layer_input_[epoch][i].size() - 1] = 1;
+
+  // compute per-layer input sizes (preserve legacy sizes: layer 0 smaller)
+  layer_input_size_per_layer_.resize(num_layers_);
+  for (unsigned int i = 0; i < num_layers_; ++i) {
+    if (i == 0) layer_input_size_per_layer_[i] = 1 + num_cells + input_size;
+    else layer_input_size_per_layer_[i] = input_size + 1 + num_cells * 2;
+  }
+  // compute offsets inside one epoch
+  layer_input_layer_offset_.resize(num_layers_);
+  unsigned int total_epoch_size = 0;
+  for (unsigned int i = 0; i < num_layers_; ++i) {
+    layer_input_layer_offset_[i] = total_epoch_size;
+    total_epoch_size += layer_input_size_per_layer_[i];
+  }
+
+  // allocate flattened buffers
+  layer_input_flat_.assign(horizon_ * total_epoch_size, 0.0f);
+  // set bias (last element) to 1 for each layer/epoch
+  for (int e = 0; e < horizon_; ++e) {
+    for (unsigned int i = 0; i < num_layers_; ++i) {
+      unsigned int idx = e * total_epoch_size + layer_input_layer_offset_[i] +
+          (layer_input_size_per_layer_[i] - 1);
+      layer_input_flat_[idx] = 1.0f;
     }
   }
-  for (unsigned int i = 0; i < num_layers; ++i) {
+
+  unsigned int hidden_size = hidden_.size();
+  output_layer_flat_.assign(horizon_ * output_size * hidden_size, 0.0f);
+  output_flat_.assign(horizon_ * output_size, 1.0f / static_cast<float>(output_size));
+
+  for (unsigned int i = 0; i < num_layers_; ++i) {
     layers_.push_back(std::unique_ptr<LstmLayer>(new LstmLayer(
-        layer_input_[0][i].size() + output_size, input_size_, output_size_,
+        layer_input_size_per_layer_[i] + output_size, input_size_, output_size_,
         num_cells, horizon, gradient_clip, learning_rate)));
   }
   //LoadFromDisk("lstm.dat");
@@ -89,9 +109,11 @@ void Lstm::SaveToDisk(const std::string& path) {
   if (last_epoch == -1) last_epoch = horizon_ - 1;
   std::ofstream os(path, std::ios::binary | std::ios::out);
   if (!os.is_open()) return;
+  unsigned int hidden_size = hidden_.size();
+  unsigned int base = last_epoch * (output_size_ * hidden_size);
   for (int i = 0; i < output_size_; ++i) {
-    os.write(reinterpret_cast<const char*>(&output_layer_[last_epoch][i][0]),
-        std::streamsize(output_layer_[0][i].size() * sizeof(float)));
+    const float* ptr = &output_layer_flat_[base + i * hidden_size];
+    os.write(reinterpret_cast<const char*>(ptr), std::streamsize(hidden_size * sizeof(float)));
   }
   for (int i = 0; i < layers_.size(); ++i) {
     auto weights = layers_[i]->Weights();
@@ -110,9 +132,11 @@ void Lstm::LoadFromDisk(const std::string& path) {
   if (last_epoch == -1) last_epoch = horizon_ - 1;
   std::ifstream is(path, std::ios::binary | std::ios::in);
   if (!is.is_open()) return;
+  unsigned int hidden_size = hidden_.size();
+  unsigned int base = last_epoch * (output_size_ * hidden_size);
   for (int i = 0; i < output_size_; ++i) {
-    is.read(reinterpret_cast<char*>(&output_layer_[last_epoch][i][0]),
-        std::streamsize(output_layer_[0][i].size() * sizeof(float)));
+    float* ptr = &output_layer_flat_[base + i * hidden_size];
+    is.read(reinterpret_cast<char*>(ptr), std::streamsize(hidden_size * sizeof(float)));
   }
   for (int i = 0; i < layers_.size(); ++i) {
     auto weights = layers_[i]->Weights();
@@ -127,9 +151,12 @@ void Lstm::LoadFromDisk(const std::string& path) {
 }
 
 void Lstm::SetInput(const std::valarray<float>& input) {
+  unsigned int total_epoch_size = 0;
+  for (unsigned int s : layer_input_size_per_layer_) total_epoch_size += s;
+  unsigned int base = epoch_ * total_epoch_size;
   for (unsigned int i = 0; i < layers_.size(); ++i) {
-    std::copy(begin(input), begin(input) + input_size_,
-        begin(layer_input_[epoch_][i]));
+    float* dest = &layer_input_flat_[base + layer_input_layer_offset_[i]];
+    std::copy(begin(input), begin(input) + input_size_, dest);
   }
 }
 
@@ -144,25 +171,33 @@ std::valarray<float>& Lstm::Perceive(unsigned int input) {
         int offset = layer * num_cells_;
         // accumulate hidden_error_ += output_layer_[epoch][i][offset..] * error
         for (unsigned int i = 0; i < output_size_; ++i) {
-          float error = (i == input_history_[epoch]) ? (output_[epoch][i] - 1) : output_[epoch][i];
-          const float* out_ptr = &output_layer_[epoch][i][0] + offset;
+          float error = (i == input_history_[epoch]) ? (output_flat_[epoch * output_size_ + i] - 1) : output_flat_[epoch * output_size_ + i];
+          unsigned int hidden_size = hidden_.size();
+          const float* out_ptr = &output_layer_flat_[epoch * (output_size_ * hidden_size) + i * hidden_size + offset];
           float* herr_ptr = &hidden_error_[0];
-          saxpy_f(herr_ptr, out_ptr, hidden_error_.size(), error);
+          saxpy_f(herr_ptr, out_ptr, (int)hidden_error_.size(), error);
         }
         int prev_epoch = epoch - 1;
         if (prev_epoch == -1) prev_epoch = horizon_ - 1;
         int input_symbol = input_history_[prev_epoch];
         if (epoch == 0) input_symbol = old_input;
-        layers_[layer]->BackwardPass(layer_input_[epoch][layer], epoch, layer,
+        // pointer to this layer's input for this epoch
+        unsigned int total_epoch_size = 0;
+        for (unsigned int s : layer_input_size_per_layer_) total_epoch_size += s;
+        const float* in_ptr = &layer_input_flat_[epoch * total_epoch_size + layer_input_layer_offset_[layer]];
+        layers_[layer]->BackwardPass(in_ptr, layer_input_size_per_layer_[layer], epoch, layer,
             input_symbol, &hidden_error_);
       }
     }
   }
 
+  unsigned int hidden_size = hidden_.size();
+  unsigned int out_epoch_base = epoch_ * (output_size_ * hidden_size);
+  unsigned int src_epoch_base = last_epoch * (output_size_ * hidden_size);
   for (unsigned int i = 0; i < output_size_; ++i) {
-    float error = (i == input) ? (output_[last_epoch][i] - 1) : output_[last_epoch][i];
-    float* dest = &output_layer_[epoch_][i][0];
-    const float* src = &output_layer_[last_epoch][i][0];
+    float error = (i == input) ? (output_flat_[last_epoch * output_size_ + i] - 1) : output_flat_[last_epoch * output_size_ + i];
+    float* dest = &output_layer_flat_[out_epoch_base + i * hidden_size];
+    const float* src = &output_layer_flat_[src_epoch_base + i * hidden_size];
     const float* hid = &hidden_[0];
     float alpha = -learning_rate_ * error;
     int n = hidden_.size();
@@ -184,38 +219,44 @@ std::valarray<float>& Lstm::Perceive(unsigned int input) {
 }
 
 std::valarray<float>& Lstm::Predict(unsigned int input) {
+  unsigned int total_epoch_size = 0;
+  for (unsigned int s : layer_input_size_per_layer_) total_epoch_size += s;
+  unsigned int base = epoch_ * total_epoch_size;
   for (unsigned int i = 0; i < layers_.size(); ++i) {
     auto start = begin(hidden_) + i * num_cells_;
-    std::copy(start, start + num_cells_, begin(layer_input_[epoch_][i]) +
-        input_size_);
-    layers_[i]->ForwardPass(layer_input_[epoch_][i], input, &hidden_, i *
-        num_cells_);
+    float* dest = &layer_input_flat_[base + layer_input_layer_offset_[i] + input_size_];
+    std::copy(start, start + num_cells_, dest);
+    layers_[i]->ForwardPass(&layer_input_flat_[base + layer_input_layer_offset_[i]],
+        layer_input_size_per_layer_[i], input, &hidden_, i * num_cells_);
     if (i < layers_.size() - 1) {
-      auto start2 = begin(layer_input_[epoch_][i + 1]) + num_cells_ +
-          input_size_;
+      float* start2 = &layer_input_flat_[base + layer_input_layer_offset_[i + 1] + num_cells_ + input_size_];
       std::copy(start, start + num_cells_, start2);
     }
   }
   float max_out = -1e20f;
+  unsigned int hidden_size2 = hidden_.size();
+  unsigned int out_base = epoch_ * (output_size_ * hidden_size2);
   for (unsigned int i = 0; i < output_size_; ++i) {
     const float* hid_ptr = &hidden_[0];
-    const float* out_ptr = &output_layer_[epoch_][i][0];
-    float sum = dot_product_f(hid_ptr, out_ptr, hidden_.size());
-    output_[epoch_][i] = sum;
+    const float* out_ptr = &output_layer_flat_[out_base + i * hidden_size2];
+    float sum = dot_product_f(hid_ptr, out_ptr, hidden_size2);
+    output_flat_[epoch_ * output_size_ + i] = sum;
     if (sum > max_out) max_out = sum;
   }
   float total_sum = 0;
   for (unsigned int i = 0; i < output_size_; ++i) {
-    float val = exp(output_[epoch_][i] - max_out);
-    output_[epoch_][i] = val;
+    float val = exp(output_flat_[epoch_ * output_size_ + i] - max_out);
+    output_flat_[epoch_ * output_size_ + i] = val;
     total_sum += val;
   }
   float inv_sum = 1.0f / total_sum;
   for (unsigned int i = 0; i < output_size_; ++i) {
-    output_[epoch_][i] *= inv_sum;
+    output_flat_[epoch_ * output_size_ + i] *= inv_sum;
   }
   int epoch = epoch_;
   ++epoch_;
   if (epoch_ == horizon_) epoch_ = 0;
-  return output_[epoch];
+  // copy to outputs_single_ for API compatibility
+  for (unsigned int i = 0; i < output_size_; ++i) outputs_single_[i] = output_flat_[epoch * output_size_ + i];
+  return outputs_single_;
 }

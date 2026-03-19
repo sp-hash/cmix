@@ -24,11 +24,17 @@ class Lstm {
   std::vector<std::unique_ptr<LstmLayer>> layers_;
   std::vector<unsigned int> input_history_;
   std::valarray<float> hidden_, hidden_error_;
-  std::valarray<std::valarray<std::valarray<float>>> layer_input_,
-      output_layer_;
-  std::valarray<std::valarray<float>> output_;
+  // Flattened buffers for better locality: layout per-epoch
+  // layer_input_flat_: concatenation of all layers' input vectors for each epoch
+  std::vector<float> layer_input_flat_;
+  std::vector<unsigned int> layer_input_layer_offset_; // per-layer offset inside an epoch
+  std::vector<unsigned int> layer_input_size_per_layer_;
+  std::vector<float> output_layer_flat_; // [epoch][output_i][hidden]
+  std::vector<float> output_flat_; // [epoch][output_i]
+  std::valarray<float> outputs_single_;
   float learning_rate_;
   unsigned int num_cells_, epoch_, horizon_, input_size_, output_size_;
+  unsigned int num_layers_;
 };
 
 #endif

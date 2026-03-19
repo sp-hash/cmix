@@ -23,6 +23,9 @@ struct NeuronLayer {
       beta_, beta_u_, beta_m_, beta_v_;
   std::valarray<std::valarray<float>> weights_, state_, update_, m_, v_,
       transpose_, norm_;
+  // Flattened weights for better locality: weights_flat_ contains num_cells * weights_stride_ elements
+  std::vector<float> weights_flat_;
+  unsigned int weights_stride_ = 0;
 };
 
 class LstmLayer {
@@ -30,9 +33,9 @@ class LstmLayer {
   LstmLayer(unsigned int input_size, unsigned int auxiliary_input_size,
       unsigned int output_size, unsigned int num_cells, int horizon,
       float gradient_clip, float learning_rate);
-  void ForwardPass(const std::valarray<float>& input, int input_symbol,
+  void ForwardPass(const float* input, unsigned int input_size, int input_symbol,
       std::valarray<float>* hidden, int hidden_start);
-  void BackwardPass(const std::valarray<float>& input, int epoch,
+  void BackwardPass(const float* input, unsigned int input_size, int epoch,
       int layer, int input_symbol, std::valarray<float>* hidden_error);
   static inline float Rand() {
     return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
@@ -49,10 +52,10 @@ class LstmLayer {
   NeuronLayer forget_gate_, input_node_, output_gate_;
 
   void ClipGradients(std::valarray<float>* arr);
-  void ForwardPass(NeuronLayer& neurons, const std::valarray<float>& input,
-      int input_symbol);
-  void BackwardPass(NeuronLayer& neurons, const std::valarray<float>&input,
-      int epoch, int layer, int input_symbol,
+  void ForwardPass(NeuronLayer& neurons, const float* input,
+      int num_inp, int input_symbol);
+  void BackwardPass(NeuronLayer& neurons, const float* input,
+      int num_inp, int epoch, int layer, int input_symbol,
       std::valarray<float>* hidden_error);
 };
 

@@ -66,8 +66,8 @@ static inline void saxpy_f(float* RESTRICT y, const float* RESTRICT x, int n, fl
 }
 
 
-void Adam(std::valarray<float>* g, std::valarray<float>* m,
-    std::valarray<float>* v, std::valarray<float>* w, float learning_rate,
+void Adam(float* g_ptr, float* m_ptr,
+    float* v_ptr, float* w_ptr, int n, float learning_rate,
     float t, unsigned long long update_limit) {
   const float beta1 = 0.025f, beta2 = 0.9999f, eps = 1e-6f; 
   float alpha;
@@ -81,13 +81,6 @@ void Adam(std::valarray<float>* g, std::valarray<float>* m,
     b1t = 1.0f - pow(beta1, update_limit);
     b2t = 1.0f - pow(beta2, update_limit);
   }
-
-
-  float* RESTRICT g_ptr = &(*g)[0];
-  float* RESTRICT m_ptr = &(*m)[0];
-  float* RESTRICT v_ptr = &(*v)[0];
-  float* RESTRICT w_ptr = &(*w)[0];
-  int n = g->size();
 
   int i = 0;
 #ifdef __AVX512F__
@@ -164,14 +157,30 @@ LstmLayer::LstmLayer(unsigned int input_size, unsigned int auxiliary_input_size,
     }
     forget_gate_.weights_[i][forget_gate_.weights_[i].size() - 1] = 1;
   }
+
+  // Initialize flattened weights for each neuron layer
+  unsigned int w_stride = input_size; // as constructed above, weights_[i].size() == input_size
+  forget_gate_.weights_stride_ = w_stride;
+  input_node_.weights_stride_ = w_stride;
+  output_gate_.weights_stride_ = w_stride;
+  forget_gate_.weights_flat_.assign(num_cells * w_stride, 0.0f);
+  input_node_.weights_flat_.assign(num_cells * w_stride, 0.0f);
+  output_gate_.weights_flat_.assign(num_cells * w_stride, 0.0f);
+  for (unsigned int i = 0; i < num_cells_; ++i) {
+    for (unsigned int j = 0; j < w_stride; ++j) {
+      forget_gate_.weights_flat_[i * w_stride + j] = forget_gate_.weights_[i][j];
+      input_node_.weights_flat_[i * w_stride + j] = input_node_.weights_[i][j];
+      output_gate_.weights_flat_[i * w_stride + j] = output_gate_.weights_[i][j];
+    }
+  }
 }
 
-void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
+void LstmLayer::ForwardPass(const float* input, unsigned int input_size, int input_symbol,
     std::valarray<float>* hidden, int hidden_start) {
   last_state_[epoch_] = state_;
-  ForwardPass(forget_gate_, input, input_symbol);
-  ForwardPass(input_node_, input, input_symbol);
-  ForwardPass(output_gate_, input, input_symbol);
+  ForwardPass(forget_gate_, input, (int)input_size, input_symbol);
+  ForwardPass(input_node_, input, (int)input_size, input_symbol);
+  ForwardPass(output_gate_, input, (int)input_size, input_symbol);
 
   float* RESTRICT fgs_ptr = &forget_gate_.state_[epoch_][0];
   float* RESTRICT ins_ptr = &input_node_.state_[epoch_][0];
@@ -186,15 +195,10 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
   const float* RESTRICT table = Sigmoid::logistic_table_ptr;
 
   for (unsigned int i = 0; i < num_cells_; ++i) {
-    // fg = Sigmoid::FastLogistic(fgs_ptr[i])
     int idx_fg = static_cast<int>(fgs_ptr[i] * scale) + half;
     float fg = (idx_fg >= Sigmoid::table_size) ? 1.0f : (idx_fg <= 0) ? 0.0f : table[idx_fg];
-
-    // in_node = Sigmoid::FastTanh(ins_ptr[i])
     int idx_in = static_cast<int>((2.0f * ins_ptr[i]) * scale) + half;
     float in_node = 2.0f * ((idx_in >= Sigmoid::table_size) ? 1.0f : (idx_in <= 0) ? 0.0f : table[idx_in]) - 1.0f;
-
-    // og = Sigmoid::FastLogistic(ogs_ptr[i])
     int idx_og = static_cast<int>(ogs_ptr[i] * scale) + half;
     float og = (idx_og >= Sigmoid::table_size) ? 1.0f : (idx_og <= 0) ? 0.0f : table[idx_og];
 
@@ -208,7 +212,6 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
     float s = s_ptr[i] * fg + in_node * ig;
     s_ptr[i] = s;
 
-    // ts = Sigmoid::FastTanh(s)
     int idx_s = static_cast<int>((2.0f * s) * scale) + half;
     float ts = 2.0f * ((idx_s >= Sigmoid::table_size) ? 1.0f : (idx_s <= 0) ? 0.0f : table[idx_s]) - 1.0f;
 
@@ -221,12 +224,11 @@ void LstmLayer::ForwardPass(const std::valarray<float>& input, int input_symbol,
 }
 
 void LstmLayer::ForwardPass(NeuronLayer& neurons,
-    const std::valarray<float>& input, int input_symbol) {
-  int num_inp = input.size();
-  const float* RESTRICT inp_ptr = &input[0];
+    const float* input, int num_inp, int input_symbol) {
+  const float* RESTRICT inp_ptr = input;
   float* RESTRICT norm_ptr = &neurons.norm_[epoch_][0];
   for (unsigned int i = 0; i < num_cells_; ++i) {
-    const float* RESTRICT w = &neurons.weights_[i][0];
+    const float* RESTRICT w = &neurons.weights_flat_[i * neurons.weights_stride_];
     const float* RESTRICT w_off = w + output_size_;
     norm_ptr[i] = w[input_symbol] + dot_product_f(inp_ptr, w_off, num_inp);
   }
@@ -277,7 +279,7 @@ void LstmLayer::ClipGradients(std::valarray<float>* arr) {
   }
 }
 
-void LstmLayer::BackwardPass(const std::valarray<float>&input, int epoch,
+void LstmLayer::BackwardPass(const float* input, unsigned int input_size, int epoch,
     int layer, int input_symbol, std::valarray<float>* hidden_error) {
   if (epoch == (int)horizon_ - 1) {
     stored_error_ = *hidden_error;
@@ -351,9 +353,9 @@ void LstmLayer::BackwardPass(const std::valarray<float>&input, int epoch,
     }
   }
 
-  BackwardPass(forget_gate_, input, epoch, layer, input_symbol, hidden_error);
-  BackwardPass(input_node_, input, epoch, layer, input_symbol, hidden_error);
-  BackwardPass(output_gate_, input, epoch, layer, input_symbol, hidden_error);
+  BackwardPass(forget_gate_, input, (int)input_size, epoch, layer, input_symbol, hidden_error);
+  BackwardPass(input_node_, input, (int)input_size, epoch, layer, input_symbol, hidden_error);
+  BackwardPass(output_gate_, input, (int)input_size, epoch, layer, input_symbol, hidden_error);
 
   ClipGradients(&state_error_);
   ClipGradients(&stored_error_);
@@ -361,7 +363,7 @@ void LstmLayer::BackwardPass(const std::valarray<float>&input, int epoch,
 }
 
 void LstmLayer::BackwardPass(NeuronLayer& neurons,
-    const std::valarray<float>&input, int epoch, int layer, int input_symbol,
+    const float* input, int num_inp, int epoch, int layer, int input_symbol,
     std::valarray<float>* hidden_error) {
   if (epoch == (int)horizon_ - 1) {
     neurons.gamma_u_ = 0;
@@ -416,8 +418,8 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
     }
   }
 
-  const float* RESTRICT inp_ptr = &input[0];
-  int inp_size = input.size();
+  const float* RESTRICT inp_ptr = input;
+  int inp_size = num_inp;
   for (unsigned int i = 0; i < num_cells_; ++i) {
     float err = err_ptr[i];
     float* RESTRICT up_ptr = &neurons.update_[i][output_size_];
@@ -428,13 +430,16 @@ void LstmLayer::BackwardPass(NeuronLayer& neurons,
 
   if (epoch == 0) {
     for (unsigned int i = 0; i < num_cells_; ++i) {
-      Adam(&neurons.update_[i], &neurons.m_[i], &neurons.v_[i],
-          &neurons.weights_[i], learning_rate_, update_steps_, update_limit_);
+      float* wptr = &neurons.weights_flat_[i * neurons.weights_stride_];
+      Adam(&neurons.update_[i][0], &neurons.m_[i][0], &neurons.v_[i][0],
+          wptr, (int)neurons.weights_stride_, learning_rate_, update_steps_, update_limit_);
+      // synchronize back to legacy valarray to preserve bit-identical behavior
+      for (unsigned int j = 0; j < neurons.weights_stride_; ++j) neurons.weights_[i][j] = wptr[j];
     }
-    Adam(&neurons.gamma_u_, &neurons.gamma_m_, &neurons.gamma_v_,
-        &neurons.gamma_, learning_rate_, update_steps_, update_limit_);
-    Adam(&neurons.beta_u_, &neurons.beta_m_, &neurons.beta_v_,
-        &neurons.beta_, learning_rate_, update_steps_, update_limit_);
+    Adam(&neurons.gamma_u_[0], &neurons.gamma_m_[0], &neurons.gamma_v_[0],
+        &neurons.gamma_[0], (int)neurons.gamma_.size(), learning_rate_, update_steps_, update_limit_);
+    Adam(&neurons.beta_u_[0], &neurons.beta_m_[0], &neurons.beta_v_[0],
+        &neurons.beta_[0], (int)neurons.beta_.size(), learning_rate_, update_steps_, update_limit_);
   }
 }
 
